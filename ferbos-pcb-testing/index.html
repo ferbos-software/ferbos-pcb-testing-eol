@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ferbos PCB EOL Tester</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="Serial connection">
+        <div>
+          <p class="eyebrow">Ferbos PCB EOL</p>
+          <h1>Serial Production Tester</h1>
+        </div>
+        <div class="connection-panel">
+          <label class="baud-select">
+            <span>Baudrate</span>
+            <select id="baudRate">
+              <option value="115200" selected>115200</option>
+              <option value="921600">921600</option>
+              <option value="460800">460800</option>
+              <option value="230400">230400</option>
+              <option value="57600">57600</option>
+            </select>
+          </label>
+          <button id="connectButton" class="primary-button" type="button">
+            <span class="button-dot"></span>
+            Connect Serial
+          </button>
+        </div>
+      </section>
+
+      <section class="status-strip" aria-label="Overall status">
+        <article>
+          <span class="metric-label">Connection</span>
+          <strong id="connectionStatus">Disconnected</strong>
+        </article>
+        <article>
+          <span class="metric-label">Progress</span>
+          <strong id="progressText">0 / 0 passed</strong>
+        </article>
+        <article>
+          <span class="metric-label">Last message</span>
+          <strong id="lastMessage">Waiting for serial</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="test-list-shell" aria-label="Test points">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Test points</p>
+              <h2>Operator Flow</h2>
+            </div>
+            <button id="resetButton" class="ghost-button" type="button">Reset</button>
+          </div>
+          <ol id="testList" class="test-list"></ol>
+        </aside>
+
+        <section class="detail-shell" aria-label="Selected test">
+          <div id="selectedTest" class="selected-test"></div>
+          <form id="parameterForm" class="parameter-form"></form>
+          <div class="action-row">
+            <button id="runButton" class="primary-button" type="button" disabled>Run Selected Test</button>
+            <button id="cleanupButton" class="ghost-button" type="button" disabled>Stop Mode</button>
+            <button id="sendRawButton" class="ghost-button" type="button" disabled>Send Raw JSON</button>
+          </div>
+          <textarea id="rawJsonInput" class="raw-input" spellcheck="false" rows="4" aria-label="Raw JSON command"></textarea>
+        </section>
+
+        <section class="log-shell" aria-label="Serial log">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Live serial</p>
+              <h2>Timeline</h2>
+            </div>
+            <button id="clearLogButton" class="ghost-button" type="button">Clear</button>
+          </div>
+          <div id="eventLog" class="event-log" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="testItemTemplate">
+      <li>
+        <button class="test-item" type="button">
+          <span class="step-number"></span>
+          <span class="test-item-copy">
+            <strong></strong>
+            <small></small>
+          </span>
+          <span class="status-pill"></span>
+        </button>
+      </li>
+    </template>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
