@@ -7,6 +7,7 @@ export class SerialClient extends EventTarget {
     this.pending = new Map();
     this.requestCounter = 0;
     this.reading = false;
+    this.readLoopPromise = null;
     this.rxBuffer = "";
   }
 
@@ -20,7 +21,7 @@ export class SerialClient extends EventTarget {
 
   async connect({ baudRate }) {
     if (!this.supported) {
-      throw new Error("Web Serial API tidak tersedia. Gunakan Chrome atau Edge desktop.");
+      throw new Error("Web Serial API is not available. Use Chrome or Edge on desktop.");
     }
 
     this.port = await navigator.serial.requestPort();
@@ -34,7 +35,7 @@ export class SerialClient extends EventTarget {
 
     this.writer = this.port.writable.getWriter();
     this.reading = true;
-    this.readLoop();
+    this.readLoopPromise = this.readLoop();
     this.dispatch("connection", { connected: true });
   }
 
@@ -50,13 +51,18 @@ export class SerialClient extends EventTarget {
       await this.reader.cancel().catch(() => {});
     }
 
+    if (this.readLoopPromise) {
+      await this.readLoopPromise.catch(() => {});
+      this.readLoopPromise = null;
+    }
+
     if (this.writer) {
       this.writer.releaseLock();
       this.writer = null;
     }
 
     if (this.port) {
-      await this.port.close().catch(() => {});
+      await this.port.close();
       this.port = null;
     }
 
@@ -65,7 +71,7 @@ export class SerialClient extends EventTarget {
 
   async sendCommand(command, payload = {}, timeoutMs = 3000) {
     if (!this.writer) {
-      throw new Error("Serial belum connect");
+      throw new Error("Serial is not connected");
     }
 
     const id = String(++this.requestCounter);
@@ -77,7 +83,7 @@ export class SerialClient extends EventTarget {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Timeout menunggu response ${command}`));
+        reject(new Error(`Timed out waiting for ${command} response`));
       }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
@@ -90,7 +96,7 @@ export class SerialClient extends EventTarget {
       parsed.id = String(++this.requestCounter);
     }
     if (!parsed.cmd) {
-      throw new Error("Raw JSON wajib punya field cmd");
+      throw new Error("Raw JSON must include the cmd field");
     }
     const { id, cmd } = parsed;
     const line = `${JSON.stringify(parsed)}\n`;
@@ -100,7 +106,7 @@ export class SerialClient extends EventTarget {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(String(id));
-        reject(new Error(`Timeout menunggu response ${cmd}`));
+        reject(new Error(`Timed out waiting for ${cmd} response`));
       }, timeoutMs);
 
       this.pending.set(String(id), { resolve, reject, timer });

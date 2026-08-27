@@ -13,8 +13,16 @@ export function createRenderer(elements, handlers) {
   const render = (state) => {
     elements.connectionStatus.textContent = state.connected ? "Connected" : "Disconnected";
     elements.connectButton.textContent = state.connected ? "Disconnect" : "Connect Serial";
+    const test = getTestById(state.selectedTestId);
+    const testState = state.tests[state.selectedTestId]?.state;
+    elements.runButton.textContent = (test?.manualDone && (testState === "running" || testState === "waiting")) ? "Done" : "Run Test";
     elements.runButton.disabled = !state.connected || !state.selectedTestId;
     elements.cleanupButton.disabled = !state.connected || !getTestById(state.selectedTestId)?.followUpCommand;
+    if (state.selectedTestId === "ble") {
+      elements.bleConnectButton.classList.remove("d-none");
+    } else {
+      elements.bleConnectButton.classList.add("d-none");
+    }
     elements.sendRawButton.disabled = !state.connected;
     elements.lastMessage.textContent = state.lastMessage;
 
@@ -69,7 +77,7 @@ function renderTestList(container, state, onSelectTest) {
 function renderSelectedTest(container, form, rawInput, state) {
   const test = getTestById(state.selectedTestId);
   if (!test) {
-    container.textContent = "Tidak ada test dipilih.";
+    container.textContent = "No test selected.";
     return;
   }
 
@@ -95,8 +103,9 @@ function renderSelectedTest(container, form, rawInput, state) {
   if (form.dataset.testId !== test.id) {
     renderParameterForm(form, test);
     form.dataset.testId = test.id;
+    rawInput.dataset.testId = test.id;
+    rawInput.value = JSON.stringify(buildPreviewCommand(test, form), null, 2);
   }
-  rawInput.value = JSON.stringify(buildPreviewCommand(test, form), null, 2);
 }
 
 function renderParameterForm(form, test) {
@@ -111,6 +120,7 @@ function renderParameterForm(form, test) {
     input.type = parameter.type ?? "text";
     input.value = parameter.value ?? "";
     input.autocomplete = "off";
+    input.className = "form-control";
     input.addEventListener("input", () => {});
     label.append(span, input);
     form.append(label);

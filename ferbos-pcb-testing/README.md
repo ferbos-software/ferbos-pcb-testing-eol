@@ -1,33 +1,32 @@
 # Ferbos PCB EOL Web Tester
 
-Static website untuk testing PCB lewat Web Serial API.
+Static website for PCB testing through the Web Serial API.
 
-## Cara Run
+## How to Run
 
-Jalankan dari root repo:
+Run from the repository root:
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Lalu buka:
+Then open:
 
 ```text
 http://localhost:8080/ferbos-pcb-testing/
 ```
 
-Gunakan Chrome atau Edge desktop karena Web Serial API perlu browser yang
-mendukung `navigator.serial` dan halaman harus dibuka dari `localhost` atau
-HTTPS.
+Use Chrome or Edge on desktop because the Web Serial API requires
+`navigator.serial` support and the page must be opened from `localhost` or HTTPS.
 
-## Struktur
+## Structure
 
-- `index.html`: layout utama.
-- `styles.css`: semua styling UI.
-- `js/main.js`: wiring UI, flow command, dan routing event.
+- `index.html`: main layout.
+- `styles.css`: all UI styling.
+- `js/main.js`: UI wiring, command flow, and event routing.
 - `js/core/serialClient.js`: Web Serial connect/read/write JSON line.
-- `js/core/testRegistry.js`: daftar test point dan kriteria pass.
-- `js/core/state.js`: state kecil untuk status test dan log.
-- `js/components/render.js`: render test list, detail, form, dan timeline.
+- `js/core/testRegistry.js`: test point list and pass criteria.
+- `js/core/state.js`: small state store for test status and logs.
+- `js/components/render.js`: renders the test list, detail view, form, and timeline.
 
-Untuk menambah test mode baru, tambahkan item baru di `js/core/testRegistry.js`.
+To add a new test mode, add a new item in `js/core/testRegistry.js`.

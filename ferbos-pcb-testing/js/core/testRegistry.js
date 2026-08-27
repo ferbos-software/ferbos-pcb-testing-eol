@@ -2,28 +2,28 @@ export const TESTS = [
   {
     id: "ping",
     label: "S3 Firmware Alive",
-    summary: "Cek firmware S3, serial RX/TX, dan parser command.",
+    summary: "Check S3 firmware, serial RX/TX, and command parser.",
     command: "ping",
     timeoutMs: 3000,
     parameters: [],
     criteria: [
-      "Response type response diterima",
-      "id dan cmd sesuai request",
-      "ok bernilai true"
+      "A response message is received",
+      "id and cmd match the request",
+      "ok is true"
     ],
     pass: ({ response }) => Boolean(response?.ok)
   },
   {
     id: "info",
     label: "S3 Runtime Info",
-    summary: "Baca chip_model, jumlah core, dan free_heap untuk identitas awal.",
+    summary: "Read chip_model, core count, and free_heap for initial identification.",
     command: "info",
     timeoutMs: 3000,
     parameters: [],
     criteria: [
-      "Response ok true",
-      "detail memuat chip_model",
-      "detail memuat cores dan free_heap"
+      "Response ok is true",
+      "detail contains chip_model",
+      "detail contains cores and free_heap"
     ],
     pass: ({ response }) => {
       const detail = response?.detail ?? "";
@@ -33,7 +33,7 @@ export const TESTS = [
   {
     id: "c6",
     label: "C6 Firmware + UART",
-    summary: "Kirim echo ke C6 lewat S3 dan validasi metadata processed_by.",
+    summary: "Send an echo payload to C6 through S3 and validate processed_by metadata.",
     command: "c6_ping",
     timeoutMs: 2500,
     parameters: [
@@ -41,9 +41,9 @@ export const TESTS = [
       { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
     ],
     criteria: [
-      "Response akhir ok true",
-      "detail memuat processed_by=c6-zigbee",
-      "Event c6 rx_ok diterima"
+      "Final response ok is true",
+      "detail contains processed_by=c6-zigbee",
+      "c6 rx_ok event is received"
     ],
     pass: ({ response, events }) => {
       const detail = response?.detail ?? "";
@@ -53,16 +53,17 @@ export const TESTS = [
   {
     id: "ethernet",
     label: "Ethernet DM9051",
-    summary: "Start Ethernet, tunggu link up, DHCP got_ip, lalu link down.",
+    summary: "Start Ethernet, wait for link up, DHCP got_ip, then link down.",
     command: "eth_start",
     timeoutMs: 3000,
     followUpCommand: "eth_stop",
+    manualDone: true,
     parameters: [],
     criteria: [
       "eth_start response ok true",
-      "event ethernet link_up diterima",
-      "event ethernet got_ip diterima",
-      "event ethernet link_down diterima"
+      "ethernet link_up event is received",
+      "ethernet got_ip event is received",
+      "ethernet link_down event is received"
     ],
     pass: ({ response, events }) => {
       const has = (state) => events.some((event) => event.test === "ethernet" && event.state === state);
@@ -73,18 +74,19 @@ export const TESTS = [
   {
     id: "wifi",
     label: "WiFi STA",
-    summary: "Connect WiFi dengan SSID/password operator dan tunggu event got_ip.",
+    summary: "Connect WiFi using the operator SSID/password and wait for the got_ip event.",
     command: "wifi_connect",
     timeoutMs: 3000,
     followUpCommand: "wifi_stop",
+    manualDone: true,
     parameters: [
       { name: "ssid", label: "SSID", value: "FactoryAP" },
       { name: "password", label: "Password", value: "", type: "password" }
     ],
     criteria: [
       "wifi_connect response ok true",
-      "event wifi connecting diterima",
-      "event wifi got_ip diterima"
+      "wifi connecting event is received",
+      "wifi got_ip event is received"
     ],
     pass: ({ response, events }) => {
       const has = (state) => events.some((event) => event.test === "wifi" && event.state === state);
@@ -95,7 +97,7 @@ export const TESTS = [
   {
     id: "ble",
     label: "BLE Start + Echo",
-    summary: "Start BLE dan kirim echo payload. Disabled SDKConfig ditandai sebagai blocked, bukan hardware fail.",
+    summary: "Start BLE and send an echo payload. Disabled SDKConfig is marked as blocked, not a hardware failure.",
     command: "ble_start",
     timeoutMs: 3000,
     chainedCommands: [
@@ -113,7 +115,7 @@ export const TESTS = [
     criteria: [
       "ble_start response ok true",
       "ble_echo response ok true",
-      "detail echo memuat payload"
+      "echo detail contains the payload"
     ],
     pass: ({ response, chainedResponses, payload }) => {
       const echo = chainedResponses.find((item) => item.cmd === "ble_echo");
@@ -124,7 +126,7 @@ export const TESTS = [
   {
     id: "rs485",
     label: "RS485 Connector",
-    summary: "Kirim payload raw ke RS485 dan tunggu satu line balasan dari jig.",
+    summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",
     command: "rs485_exchange",
     timeoutMs: 2500,
     parameters: [
@@ -133,8 +135,8 @@ export const TESTS = [
     ],
     criteria: [
       "Response ok true",
-      "event rs485 rx diterima",
-      "detail memuat tx dan rx"
+      "rs485 rx event is received",
+      "detail contains tx and rx"
     ],
     pass: ({ response, events }) => {
       const detail = response?.detail ?? "";
