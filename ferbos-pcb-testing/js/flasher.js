@@ -13,6 +13,49 @@ const EXPECTED_CHIP_NAMES = {
   c6: "ESP32-C6"
 };
 
+const FIRMWARE_PROFILES = {
+  tester: {
+    label: "PCB Testing Firmware",
+    targets: {
+      s3: {
+        files: [
+          { path: "bootloader.bin", address: 0x0 },
+          { path: "partition-table.bin", address: 0x8000 },
+          { path: "ferbos-pcb-testing-eol-main.bin", address: 0x10000 }
+        ]
+      },
+      c6: {
+        files: [
+          { path: "bootloader.bin", address: 0x0 },
+          { path: "partition-table.bin", address: 0x8000 },
+          { path: "ferbos-pcb-testing-eol-zigbee.bin", address: 0x10000 }
+        ]
+      }
+    }
+  },
+  production: {
+    label: "Production Firmware",
+    targets: {
+      s3: {
+        files: [
+          { path: "bootloader.bin", address: 0x0 },
+          { path: "partition-table.bin", address: 0x8000 },
+          { path: "ota_data_initial.bin", address: 0x29000 },
+          { path: "ferbos-gateway-main.bin", address: 0x30000 }
+        ]
+      },
+      c6: {
+        files: [
+          { path: "bootloader.bin", address: 0x0 },
+          { path: "partition-table.bin", address: 0x8000 },
+          { path: "ferbos-zigbee-gateway.bin", address: 0x10000 },
+          { path: "ota_data_initial.bin", address: 0x2ce000 }
+        ]
+      }
+    }
+  }
+};
+
 function writeLog(onLog, data, trailingNewline = false) {
   const message = trailingNewline ? `${data}\n` : data;
   if (onLog) onLog(message);
@@ -35,6 +78,28 @@ function needsManualBoot(error) {
   return message.includes("setSignals") || message.includes("Failed to set control signals");
 }
 
+async function loadFirmwareFiles(profile, target) {
+  const firmwareProfile = FIRMWARE_PROFILES[profile];
+  const targetConfig = firmwareProfile?.targets[target];
+  if (!targetConfig) {
+    throw new Error(`Firmware ${profile}/${target} belum tersedia`);
+  }
+
+  return Promise.all(
+    targetConfig.files.map(async (file) => {
+      const response = await fetch(`./firmware/${profile}/${target}/${file.path}`);
+      if (!response.ok) {
+        throw new Error(`${file.path} not found for ${firmwareProfile.label} ${target.toUpperCase()}`);
+      }
+
+      return {
+        data: new Uint8Array(await response.arrayBuffer()),
+        address: file.address
+      };
+    })
+  );
+}
+
 /**
  * Flashes ESP32-S3 and ESP32-C6 firmware using esptool-js
  *
@@ -49,30 +114,8 @@ export async function flashFirmware(port, target, onProgress, onLog, options = {
   let manualResetRequired = false;
 
   try {
-    const appFilename = target === 's3' ? 'ferbos-pcb-testing-eol-main.bin' : 'ferbos-pcb-testing-eol-zigbee.bin';
-    
-    // 1. Ambil file .bin menggunakan Fetch API
-    const [bootloaderUrl, partitionUrl, appUrl] = await Promise.all([
-      fetch(`./firmware/${target}/bootloader.bin`).then(r => {
-        if (!r.ok) throw new Error(`bootloader.bin not found for ${target}`);
-        return r.arrayBuffer();
-      }),
-      fetch(`./firmware/${target}/partition-table.bin`).then(r => {
-        if (!r.ok) throw new Error(`partition-table.bin not found for ${target}`);
-        return r.arrayBuffer();
-      }),
-      fetch(`./firmware/${target}/${appFilename}`).then(r => {
-        if (!r.ok) throw new Error(`${appFilename} not found for ${target}`);
-        return r.arrayBuffer();
-      })
-    ]);
-
-    // 2. Siapkan konfigurasi file beserta alamatnya
-    const fileArray = [
-      { data: new Uint8Array(bootloaderUrl), address: 0x0 },
-      { data: new Uint8Array(partitionUrl), address: 0x8000 },
-      { data: new Uint8Array(appUrl), address: 0x10000 }
-    ];
+    const profile = options.profile ?? "tester";
+    const fileArray = await loadFirmwareFiles(profile, target);
 
     // 3. Konfigurasi Transport
     // Kita bypass inisiasi manual port karena Transport biasanya mengatur koneksinya.

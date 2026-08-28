@@ -1,25 +1,34 @@
 :root {
   color-scheme: light;
-  --ink: #172033;
-  --muted: #667085;
-  --soft-muted: #8a94a6;
-  --line: #e5eaf0;
-  --page: #f7f9fc;
-  --surface: #ffffff;
-  --surface-soft: #f3f6fa;
-  --blue: #1f4e79;
-  --blue-strong: #173d61;
-  --blue-soft: #e8f1f8;
-  --ok: #1f8a5b;
-  --ok-soft: #e8f6ef;
-  --warn: #a86b16;
-  --warn-soft: #fff3df;
-  --fail: #b23b45;
-  --fail-soft: #fdecef;
-  --idle: #6b778c;
-  --idle-soft: #edf1f5;
-  --shadow: 0 18px 45px rgba(23, 32, 51, 0.08);
+  --ink: #334155;          /* softer slate */
+  --muted: #64748b;
+  --soft-muted: #94a3b8;
+  --line: #cbd5e1;
+  --page: #e2e8f0;         /* dimmer grayish-blue background */
+  --surface: #f8fafc;      /* off-white for cards, not purely white */
+  --surface-soft: #f1f5f9;
+  
+  --blue: #475569;         /* deeper, muted slate blue */
+  --blue-strong: #334155;
+  --blue-soft: #e2e8f0;
+  
+  --ok: #0f766e;           /* softer teal/emerald */
+  --ok-soft: #ccfbf1;
+  
+  --warn: #b45309;         /* softer amber */
+  --warn-soft: #fef3c7;
+  
+  --fail: #be123c;         /* softer rose/red */
+  --fail-soft: #ffe4e6;
+  
+  --idle: #94a3b8;
+  --idle-soft: #f1f5f9;
+  
+  --shadow: 0 8px 30px rgba(15, 23, 42, 0.08); /* softer shadow */
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  
+  --bs-primary: var(--blue);
+  --bs-success: var(--ok);
 }
 
 * {
@@ -31,9 +40,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--ink);
-  background:
-    linear-gradient(180deg, #ffffff 0, var(--page) 360px),
-    var(--page);
+  background-color: var(--page);
 }
 
 button,
@@ -47,12 +54,45 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Bootstrap Theme Overrides for Softer Colors */
+.btn-primary, .bg-primary, .badge.bg-primary {
+  background-color: var(--blue) !important;
+  border-color: var(--blue) !important;
+  color: #fff !important;
+}
+.btn-outline-primary {
+  color: var(--blue) !important;
+  border-color: var(--blue) !important;
+}
+.btn-outline-primary:hover {
+  background-color: var(--blue) !important;
+  color: #fff !important;
+}
+
+.btn-success, .bg-success, .badge.bg-success {
+  background-color: var(--ok) !important;
+  border-color: var(--ok) !important;
+  color: #fff !important;
+}
+.btn-outline-success {
+  color: var(--ok) !important;
+  border-color: var(--ok) !important;
+}
+.btn-outline-success:hover {
+  background-color: var(--ok) !important;
+  color: #fff !important;
+}
+
+.text-primary { color: var(--blue) !important; }
+.text-success { color: var(--ok) !important; }
+
+.bg-light { background-color: var(--surface-soft) !important; }
+
 .app-shell {
   max-width: 1480px;
   padding: 24px;
 }
 
-.hero-panel,
 .panel,
 .metric-card {
   border: 1px solid var(--line);
@@ -60,9 +100,18 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
-.hero-panel {
-  border-radius: 14px;
-  padding: 28px;
+.card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 12px;
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.card .badge {
+  font-size: 0.85rem;
+  padding: 0.4em 0.8em;
+  border-radius: 20px;
 }
 
 .app-kicker,
@@ -166,6 +215,30 @@ h3 {
 
 .status-row {
   margin-top: 18px;
+}
+
+.qc-stage-grid,
+.production-stage {
+  margin-top: 18px;
+}
+
+.flash-stage {
+  border-left: 4px solid var(--warn);
+}
+
+.production-stage .flash-stage {
+  border-left-color: var(--ok);
+}
+
+.flash-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 220px));
+  gap: 10px;
+}
+
+.flash-action-grid .btn {
+  min-height: 44px;
+  font-weight: 800;
 }
 
 .metric-card {
@@ -479,6 +552,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 12px;
   color: var(--ink);
+  background-color: var(--surface);
 }
 
 .flash-assist-modal .modal-header,
@@ -580,6 +654,10 @@ h3 {
   }
 
   .parameter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .flash-action-grid {
     grid-template-columns: 1fr;
   }
 

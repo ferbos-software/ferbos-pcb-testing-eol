@@ -2,19 +2,20 @@ import { createRenderer } from "./components/render.js";
 import { SerialClient } from "./core/serialClient.js";
 import { createStore } from "./core/state.js";
 import { TESTS, getTestById } from "./core/testRegistry.js";
-import { ManualBootRequiredError, flashFirmware } from "./flasher.js";
+import { flashFirmware } from "./flasher.js";
 
 const elements = {
-  baudRate: document.querySelector("#baudRate"),
   connectButton: document.querySelector("#connectButton"),
-  flashDropdownBtn: document.querySelector("#flashDropdownBtn"),
-  flashS3Button: document.querySelector("#flashS3Button"),
-  flashC6Button: document.querySelector("#flashC6Button"),
+  flashTesterS3Button: document.querySelector("#flashTesterS3Button"),
+  flashTesterC6Button: document.querySelector("#flashTesterC6Button"),
+  flashProductionS3Button: document.querySelector("#flashProductionS3Button"),
+  flashProductionC6Button: document.querySelector("#flashProductionC6Button"),
   flashProgress: document.querySelector("#flashProgress"),
   flashPercentage: document.querySelector("#flashPercentage"),
   flashProgressBar: document.querySelector("#flashProgressBar"),
   flashAssistModal: document.querySelector("#flashAssistModal"),
   flashAssistTitle: document.querySelector("#flashAssistTitle"),
+  flashStatusText: document.querySelector("#flashStatusText"),
   flashAssistIcon: document.querySelector("#flashAssistIcon"),
   flashAssistStatus: document.querySelector("#flashAssistStatus"),
   flashAssistMessage: document.querySelector("#flashAssistMessage"),
@@ -31,7 +32,7 @@ const elements = {
   parameterForm: document.querySelector("#parameterForm"),
   runButton: document.querySelector("#runButton"),
   cleanupButton: document.querySelector("#cleanupButton"),
-  bleConnectButton: document.querySelector("#bleConnectButton"),
+  rs485ConnectButton: document.querySelector("#rs485ConnectButton"),
   sendRawButton: document.querySelector("#sendRawButton"),
   rawJsonInput: document.querySelector("#rawJsonInput"),
   clearLogButton: document.querySelector("#clearLogButton"),
@@ -39,6 +40,7 @@ const elements = {
 };
 
 const serial = new SerialClient();
+const rs485Serial = new SerialClient();
 const render = createRenderer(elements, {
   onSelectTest: (testId) => store.selectTest(testId)
 });
@@ -46,11 +48,27 @@ const store = createStore(render);
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const flashAssistModal = new bootstrap.Modal(elements.flashAssistModal);
-let pendingManualFlash = null;
 let flashSession = null;
+const flashActionButtons = [
+  elements.flashTesterS3Button,
+  elements.flashTesterC6Button,
+  elements.flashProductionS3Button,
+  elements.flashProductionC6Button
+];
+
+const FLASH_PROFILE_LABELS = {
+  tester: "PCB Testing Firmware",
+  production: "Production Firmware"
+};
+
+const FLASH_FILE_COUNTS = {
+  tester: { s3: 3, c6: 3 },
+  production: { s3: 4, c6: 4 }
+};
 
 wireUi();
 wireSerial();
+wireRs485();
 render(store.getState());
 
 function wireUi() {
@@ -60,23 +78,25 @@ function wireUi() {
         await serial.disconnect();
         return;
       }
-      await serial.connect({ baudRate: elements.baudRate.value });
+      await serial.connect({ baudRate: 115200 });
     } catch (error) {
       pushError(error);
     }
   });
 
-  async function handleFlashClick(target) {
+  async function handleFlashClick(profile, target) {
     if (serial.isConnected) {
       await serial.disconnect();
       await wait(250);
     }
 
-    prepareManualFlash(target);
+    prepareManualFlash(profile, target);
   }
 
-  elements.flashS3Button.addEventListener("click", () => handleFlashClick('s3'));
-  elements.flashC6Button.addEventListener("click", () => handleFlashClick('c6'));
+  elements.flashTesterS3Button.addEventListener("click", () => handleFlashClick("tester", "s3"));
+  elements.flashTesterC6Button.addEventListener("click", () => handleFlashClick("tester", "c6"));
+  elements.flashProductionS3Button.addEventListener("click", () => handleFlashClick("production", "s3"));
+  elements.flashProductionC6Button.addEventListener("click", () => handleFlashClick("production", "c6"));
   elements.flashAssistRetryButton.addEventListener("click", () => startAutoFlash());
   elements.flashAssistManualButton.addEventListener("click", () => startManualBootFlash());
   elements.flashAssistCloseButton.addEventListener("click", () => cancelPendingManualFlash());
@@ -99,7 +119,23 @@ function wireUi() {
     }
   });
   elements.cleanupButton.addEventListener("click", () => runCleanupCommand());
-  elements.bleConnectButton.addEventListener("click", () => connectBleDevice());
+  
+  elements.rs485ConnectButton.addEventListener("click", async () => {
+    try {
+      if (rs485Serial.isConnected) {
+        await rs485Serial.disconnect();
+        elements.rs485ConnectButton.textContent = "Connect RS485 Jig";
+        elements.rs485ConnectButton.classList.replace("btn-danger", "btn-info");
+        return;
+      }
+      await rs485Serial.connect({ baudRate: 9600 });
+      elements.rs485ConnectButton.classList.replace("btn-info", "btn-danger");
+      store.addLog({ kind: "ok", title: "RS485", message: "Jig connected. Listening for PING..." });
+    } catch (error) {
+      pushError(error);
+    }
+  });
+
   elements.sendRawButton.addEventListener("click", () => sendRaw());
 
   elements.parameterForm.addEventListener("input", () => {
@@ -124,15 +160,14 @@ async function runFlashAttempt(port, target, modalCopy, options = {}) {
   return flashFirmware(port, target, updateFlashProgress, logFlashTool, options);
 }
 
-function prepareManualFlash(target) {
-  pendingManualFlash = null;
-  flashSession = { target, complete: false };
+function prepareManualFlash(profile, target) {
+  flashSession = { profile, target, complete: false };
   elements.flashProgress.style.display = "block";
-  elements.flashDropdownBtn.disabled = true;
+  setFlashActionButtonsDisabled(true);
   elements.connectButton.disabled = true;
   elements.flashPercentage.innerText = "0%";
   elements.flashProgressBar.style.width = "0%";
-  elements.flashProgress.querySelector('.text-muted').innerText = `Waiting for ${target.toUpperCase()} boot mode...`;
+  elements.flashStatusText.innerText = `Waiting for ${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}...`;
   elements.flashAssistRetryButton.textContent = "Auto Flash";
   elements.flashAssistManualButton.textContent = "Manual Boot Flash";
   elements.flashAssistCloseButton.textContent = "Cancel";
@@ -141,7 +176,7 @@ function prepareManualFlash(target) {
   flashAssistModal.show();
   updateFlashAssist({
     icon: "busy",
-    title: `Prepare ESP32-${target.toUpperCase()} Flash`,
+    title: `Prepare ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
     status: "Choose flash method",
     message: "Use Auto Flash for normal boards. If automatic reset fails, use Manual Boot Flash and follow the BOOT/RESET steps.",
     steps: [
@@ -154,7 +189,7 @@ function prepareManualFlash(target) {
     showManual: true,
     showClose: true
   });
-  store.addLog({ kind: "tx", title: `Prepare ${target.toUpperCase()} Flash`, message: "Waiting for operator to choose automatic or manual boot flashing." });
+  store.addLog({ kind: "tx", title: `Prepare ${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`, message: "Waiting for operator to choose automatic or manual boot flashing." });
 }
 
 async function startAutoFlash() {
@@ -162,7 +197,7 @@ async function startAutoFlash() {
     return;
   }
 
-  const { target } = flashSession;
+  const { profile, target } = flashSession;
 
   try {
     elements.flashAssistRetryButton.disabled = true;
@@ -171,7 +206,7 @@ async function startAutoFlash() {
     elements.flashAssistCloseButton.textContent = "Cancel";
     updateFlashAssist({
       icon: "busy",
-      title: `Flashing ESP32-${target.toUpperCase()}`,
+      title: `Flashing ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
       status: "Select the serial port",
       message: "Choose the correct COM/tty port. The flasher will use automatic reset.",
       showSteps: false,
@@ -181,13 +216,14 @@ async function startAutoFlash() {
     });
 
     const port = await navigator.serial.requestPort();
-    store.addLog({ kind: "tx", title: `Auto Flash ${target.toUpperCase()}`, message: `Automatic reset flash started for ESP32-${target.toUpperCase()}.` });
+    store.addLog({ kind: "tx", title: `Auto Flash ${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`, message: `Automatic reset flash started for ESP32-${target.toUpperCase()}.` });
 
     const result = await runFlashAttempt(port, target, {
-      title: `Flashing ESP32-${target.toUpperCase()}`,
+      title: `Flashing ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
       status: "Trying automatic reset",
       message: "Keep the USB cable connected while firmware is written."
     }, {
+      profile,
       resetMode: "default_reset",
       resetAfter: true
     });
@@ -196,12 +232,12 @@ async function startAutoFlash() {
     completeFlashUi(target, result.manualResetRequired);
   } catch (error) {
     if (error.name === "NotFoundError") {
-      showFlashPreparation(target, "Port selection was cancelled. Click Auto Flash again when ready.");
+      showFlashPreparation(profile, target, "Port selection was cancelled. Click Auto Flash again when ready.");
       return;
     }
 
     store.addLog({ kind: "error", title: "Auto Flash Failed", message: error.message });
-    showManualBootInstructions(target, error);
+    showManualBootInstructions(profile, target, error);
   }
 }
 
@@ -210,7 +246,7 @@ async function startManualBootFlash() {
     return;
   }
 
-  const { target } = flashSession;
+  const { profile, target } = flashSession;
 
   try {
     elements.flashAssistRetryButton.disabled = true;
@@ -219,7 +255,7 @@ async function startManualBootFlash() {
     elements.flashAssistCloseButton.textContent = "Cancel";
     updateFlashAssist({
       icon: "busy",
-      title: `Manual Boot ESP32-${target.toUpperCase()}`,
+      title: `Manual Boot ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
       status: "Select the serial port",
       message: "Hold BOOT, press and release RESET once, keep holding BOOT, then choose the COM/tty port.",
       steps: [
@@ -235,13 +271,14 @@ async function startManualBootFlash() {
     });
 
     const port = await navigator.serial.requestPort();
-    store.addLog({ kind: "tx", title: `Manual Boot Flash ${target.toUpperCase()}`, message: `Manual no-reset flash started for ESP32-${target.toUpperCase()}.` });
+    store.addLog({ kind: "tx", title: `Manual Boot Flash ${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`, message: `Manual no-reset flash started for ESP32-${target.toUpperCase()}.` });
 
     await runFlashAttempt(port, target, {
-      title: `Flashing ESP32-${target.toUpperCase()}`,
+      title: `Flashing ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
       status: "Connecting without reset",
       message: "Keep holding BOOT until the success message appears."
     }, {
+      profile,
       resetMode: "no_reset",
       resetAfter: false
     });
@@ -250,16 +287,16 @@ async function startManualBootFlash() {
     completeFlashUi(target, true);
   } catch (error) {
     if (error.name === "NotFoundError") {
-      showManualBootInstructions(target, error, "Port selection was cancelled. Hold BOOT, press RESET once, then click Manual Boot Flash again.");
+      showManualBootInstructions(profile, target, error, "Port selection was cancelled. Hold BOOT, press RESET once, then click Manual Boot Flash again.");
       return;
     }
 
     store.addLog({ kind: "error", title: "Manual Boot Flash Failed", message: error.message });
-    showManualBootInstructions(target, error);
+    showManualBootInstructions(profile, target, error);
   }
 }
 
-function showFlashPreparation(target, message) {
+function showFlashPreparation(profile, target, message) {
   elements.flashAssistRetryButton.disabled = false;
   elements.flashAssistManualButton.disabled = false;
   elements.flashAssistRetryButton.textContent = "Auto Flash";
@@ -267,7 +304,7 @@ function showFlashPreparation(target, message) {
   elements.flashAssistCloseButton.textContent = "Cancel";
   updateFlashAssist({
     icon: "busy",
-    title: `Prepare ESP32-${target.toUpperCase()} Flash`,
+    title: `Prepare ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
     status: "Choose flash method",
     message,
     steps: [
@@ -282,8 +319,7 @@ function showFlashPreparation(target, message) {
   });
 }
 
-function showManualBootInstructions(target, error, messageOverride) {
-  pendingManualFlash = null;
+function showManualBootInstructions(profile, target, error, messageOverride) {
   elements.flashAssistRetryButton.disabled = false;
   elements.flashAssistManualButton.disabled = false;
   elements.flashAssistRetryButton.textContent = "Auto Flash";
@@ -291,7 +327,7 @@ function showManualBootInstructions(target, error, messageOverride) {
   elements.flashAssistCloseButton.textContent = "Cancel";
   updateFlashAssist({
     icon: "warn",
-    title: `ESP32-${target.toUpperCase()} Bootloader Not Ready`,
+    title: `ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]} Bootloader Not Ready`,
     status: "Manual boot may be required",
     message: messageOverride ?? `${formatFlashError(error)} Try Manual Boot Flash if Auto Flash keeps failing.`,
     steps: [
@@ -309,12 +345,13 @@ function showManualBootInstructions(target, error, messageOverride) {
 }
 
 function completeFlashUi(target, manualResetNeeded) {
-  store.addLog({ kind: "ok", title: "Flash Success", message: `Firmware ${target.toUpperCase()} berhasil diflash.` });
-  updateFlashProgress(2, 100);
+  const profile = flashSession?.profile ?? "tester";
+  store.addLog({ kind: "ok", title: "Flash Success", message: `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash.` });
+  updateFlashProgress((FLASH_FILE_COUNTS[profile]?.[target] ?? 1) - 1, 100);
   elements.flashAssistCloseButton.textContent = "OK";
   updateFlashAssist({
     icon: "ok",
-    title: `ESP32-${target.toUpperCase()} Flash Complete`,
+    title: `ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]} Complete`,
     status: "Firmware verified successfully",
     message: manualResetNeeded
       ? "Flash is complete. You can release BOOT now. Click OK to reload the tester before serial testing."
@@ -343,12 +380,18 @@ function failFlashUi(target, error) {
 
 function endFlashControls() {
   elements.flashProgress.style.display = "none";
-  elements.flashDropdownBtn.disabled = false;
+  setFlashActionButtonsDisabled(false);
   elements.connectButton.disabled = false;
   elements.flashAssistRetryButton.disabled = false;
   elements.flashAssistManualButton.disabled = false;
   elements.flashAssistRetryButton.textContent = "Auto Flash";
   elements.flashAssistManualButton.textContent = "Manual Boot Flash";
+}
+
+function setFlashActionButtonsDisabled(disabled) {
+  for (const button of flashActionButtons) {
+    button.disabled = disabled;
+  }
 }
 
 function cancelPendingManualFlash() {
@@ -357,16 +400,17 @@ function cancelPendingManualFlash() {
     return;
   }
 
-  if (pendingManualFlash || flashSession) {
+  if (flashSession) {
     store.addLog({ kind: "error", title: "Flash Cancelled", message: "Firmware flashing was cancelled by operator." });
   }
-  pendingManualFlash = null;
   flashSession = null;
   endFlashControls();
 }
 
 function updateFlashProgress(fileIndex, percentage) {
-  elements.flashPercentage.innerText = `${percentage}% (File ${fileIndex + 1}/3)`;
+  const { profile = "tester", target = "s3" } = flashSession ?? {};
+  const fileCount = FLASH_FILE_COUNTS[profile]?.[target] ?? 3;
+  elements.flashPercentage.innerText = `${percentage}% (File ${fileIndex + 1}/${fileCount})`;
   elements.flashProgressBar.style.width = `${percentage}%`;
 }
 
@@ -440,14 +484,64 @@ function wireSerial() {
   serial.addEventListener("error", (event) => pushError(event.detail.error));
 }
 
+function wireRs485() {
+  rs485Serial.addEventListener("connection", (event) => {
+    store.addLog({
+      kind: event.detail.connected ? "ok" : "error",
+      title: "RS485 Jig",
+      message: event.detail.connected ? "Jig serial connected" : "Jig serial disconnected"
+    });
+  });
+
+  // Since EOL_RS485_PING is a raw string, not JSON, it will trigger rx-invalid on the SerialClient parser
+  rs485Serial.addEventListener("rx-invalid", async (event) => {
+    const text = event.detail.line || "";
+    if (text.includes("EOL_RS485_PING")) {
+      store.addLog({ kind: "rx", title: "RS485 IN", message: text });
+      try {
+        const reply = "EOL_RS485_PONG\n";
+        await rs485Serial.sendString(reply);
+        store.addLog({ kind: "tx", title: "RS485 OUT", message: reply.trim() });
+      } catch (err) {
+        pushError(err);
+      }
+    }
+  });
+
+  // Just in case they send a valid JSON instead of a raw string, catch it here too
+  rs485Serial.addEventListener("rx", async (event) => {
+    const line = event.detail.line || "";
+    if (line.includes("EOL_RS485_PING")) {
+      store.addLog({ kind: "rx", title: "RS485 IN", message: line });
+      try {
+        await rs485Serial.sendString("EOL_RS485_PONG\n");
+      } catch (err) {
+        pushError(err);
+      }
+    }
+  });
+
+  rs485Serial.addEventListener("error", (event) => pushError(event.detail.error));
+}
+
 async function runSelectedTest() {
   const test = getTestById(store.getState().selectedTestId);
   if (!test) {
     return;
   }
 
+  if (test.id === "rs485" && !rs485Serial.isConnected) {
+    store.addLog({ kind: "error", title: "RS485 Test", message: "Please click 'Connect RS485 Jig' before running this test." });
+    pushError(new Error("RS485 Jig adapter is not connected."));
+    return;
+  }
+
   const payload = readParameters(test);
   const eventsBeforeRun = store.getState().tests[test.id].events.length;
+  
+  // Use a longer timeout for the Web UI promise to allow firmware to finish
+  const uiTimeoutMs = payload.timeout_ms ? Number(payload.timeout_ms) + 2000 : (test.timeoutMs || 3000);
+  
   store.updateTest(test.id, {
     state: "running",
     response: null,
@@ -457,7 +551,7 @@ async function runSelectedTest() {
   });
 
   try {
-    const response = await serial.sendCommand(test.command, payload, test.timeoutMs);
+    const response = await serial.sendCommand(test.command, payload, uiTimeoutMs);
     const events = getEventsSince(test.id, eventsBeforeRun);
     const chainedResponses = [];
 
@@ -494,29 +588,6 @@ async function sendRaw() {
   }
 }
 
-async function connectBleDevice() {
-  try {
-    if (!navigator.bluetooth) {
-      throw new Error("Web Bluetooth API is not available in this browser.");
-    }
-    const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true
-    });
-    store.addLog({ kind: "ok", title: "BLE Device Selected", message: `Selected ${device.name || "Unknown Device"}` });
-    
-    // We attempt to connect to GATT server
-    const server = await device.gatt.connect();
-    store.addLog({ kind: "ok", title: "BLE Connected", message: `Connected to GATT Server of ${device.name || "Unknown Device"}` });
-    
-    // Disconnect listener
-    device.addEventListener('gattserverdisconnected', () => {
-      store.addLog({ kind: "error", title: "BLE Disconnected", message: `Device ${device.name || "Unknown"} disconnected` });
-    });
-    
-  } catch (error) {
-    pushError(error);
-  }
-}
 
 function routeIncomingMessage(message) {
   if (message.type === "boot") {

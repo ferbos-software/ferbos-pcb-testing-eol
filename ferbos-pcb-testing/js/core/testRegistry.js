@@ -95,35 +95,6 @@ export const TESTS = [
     waitingStates: ["got_ip"]
   },
   {
-    id: "ble",
-    label: "BLE Start + Echo",
-    summary: "Start BLE and send an echo payload. Disabled SDKConfig is marked as blocked, not a hardware failure.",
-    command: "ble_start",
-    timeoutMs: 3000,
-    chainedCommands: [
-      {
-        command: "ble_echo",
-        parameters: [
-          { name: "payload", source: "payload" }
-        ]
-      }
-    ],
-    followUpCommand: "ble_stop",
-    parameters: [
-      { name: "payload", label: "Echo payload", value: "hello-ble" }
-    ],
-    criteria: [
-      "ble_start response ok true",
-      "ble_echo response ok true",
-      "echo detail contains the payload"
-    ],
-    pass: ({ response, chainedResponses, payload }) => {
-      const echo = chainedResponses.find((item) => item.cmd === "ble_echo");
-      return Boolean(response?.ok && echo?.ok && (echo.detail ?? "").includes(payload.payload));
-    },
-    blocked: ({ response }) => (response?.detail ?? "").includes("disabled_by_sdkconfig")
-  },
-  {
     id: "rs485",
     label: "RS485 Connector",
     summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",

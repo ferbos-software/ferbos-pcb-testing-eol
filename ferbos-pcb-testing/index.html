@@ -8,65 +8,81 @@
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
-    <main class="container-fluid app-shell">
-      <section class="hero-panel" aria-label="Serial connection">
-        <div class="row g-4 align-items-center">
-          <div class="col-lg-7">
-            <span class="app-kicker">Ferbos PCB EOL</span>
-            <h1>Production Serial Tester</h1>
-            <p class="hero-copy mb-0">Select the serial port, run each test step, and follow the status colors until the PCB is confirmed ready.</p>
-          </div>
-          <div class="col-lg-5">
-            <div class="connect-box">
-              <label class="form-label" for="baudRate">Baudrate</label>
-              <div class="d-flex flex-column flex-sm-row gap-2">
-                <select id="baudRate" class="form-select">
-                  <option value="115200" selected>115200</option>
-                  <option value="921600">921600</option>
-                  <option value="460800">460800</option>
-                  <option value="230400">230400</option>
-                  <option value="57600">57600</option>
-                </select>
-                <button id="connectButton" class="btn btn-primary-soft" type="button">Connect Serial</button>
-                <div class="dropdown">
-                  <button class="btn btn-warning dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="flashDropdownBtn">
-                    Flash Firmware
-                  </button>
-                  <ul class="dropdown-menu">
-                    <li><button class="dropdown-item" type="button" id="flashS3Button">Flash ESP32-S3</button></li>
-                    <li><button class="dropdown-item" type="button" id="flashC6Button">Flash ESP32-C6</button></li>
-                  </ul>
-                </div>
-              </div>
-              <div id="flashProgress" class="flash-progress mt-3" style="display: none;">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <span class="small fw-medium text-muted">Flashing Firmware...</span>
-                  <span id="flashPercentage" class="small fw-bold">0%</span>
-                </div>
-                <div class="progress" style="height: 6px;">
-                  <div id="flashProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 0%"></div>
-                </div>
+    <main class="container-fluid app-shell py-4">
+      <div class="row mb-4">
+        <div class="col-12 text-center mb-3">
+          <h1 class="fw-bold">Ferbos EOL PCB Tester</h1>
+          <p class="text-muted">Production pipeline for ESP32-S3 and ESP32-C6 testing and firmware provisioning.</p>
+        </div>
+      </div>
+
+      <div class="row g-4 mb-4">
+        <!-- STEP 1: Flash Testing Bin -->
+        <div class="col-md-4">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center">
+              <div class="badge bg-primary mb-2 fs-6">Step 1</div>
+              <h4 class="card-title fw-bold">Flash Testing Bin</h4>
+              <p class="text-muted small">Upload firmware khusus testing (PCB EOL Tester) ke board.</p>
+              <div class="d-grid gap-2 mt-4">
+                <button id="flashTesterS3Button" class="btn btn-outline-primary" type="button">Flash ESP32-S3 (Tester)</button>
+                <button id="flashTesterC6Button" class="btn btn-outline-primary" type="button">Flash ESP32-C6 (Tester)</button>
               </div>
             </div>
           </div>
         </div>
-      </section>
 
-      <section class="row g-3 status-row" aria-label="Overall status">
+        <!-- STEP 2: PCB Testing -->
         <div class="col-md-4">
-          <article class="metric-card">
-            <span>Connection</span>
-            <strong id="connectionStatus">Disconnected</strong>
-          </article>
+          <div class="card h-100 border-0 shadow-sm bg-light" style="border-top: 4px solid var(--blue) !important;">
+            <div class="card-body text-center">
+              <div class="badge bg-primary mb-2 fs-6">Step 2</div>
+              <h4 class="card-title fw-bold">Start Testing</h4>
+              <p class="text-muted small">Jalankan urutan test serial untuk validasi fungsional komponen.</p>
+              <div class="mt-4">
+                <button id="connectButton" class="btn btn-primary btn-lg w-100" type="button">Connect Serial (115200)</button>
+                <div id="connectionStatus" class="mt-2 fw-bold text-secondary">Disconnected</div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- STEP 3: Flash Production -->
         <div class="col-md-4">
-          <article class="metric-card">
+          <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center">
+              <div class="badge bg-success mb-2 fs-6">Step 3</div>
+              <h4 class="card-title fw-bold">Flash Production Bin</h4>
+              <p class="text-muted small">Setelah lolos test, upload firmware production untuk siap jual.</p>
+              <div class="d-grid gap-2 mt-4">
+                <button id="flashProductionS3Button" class="btn btn-outline-success" type="button">Flash ESP32-S3 (Prod)</button>
+                <button id="flashProductionC6Button" class="btn btn-outline-success" type="button">Flash ESP32-C6 (Prod)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flash Progress Bar (Global) -->
+      <div id="flashProgress" class="card border-0 shadow-sm mb-4 bg-dark text-white" style="display: none;">
+        <div class="card-body text-center">
+          <h5 id="flashStatusText" class="mb-3">Flashing Firmware...</h5>
+          <div class="progress" style="height: 12px;">
+            <div id="flashProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 0%"></div>
+          </div>
+          <div id="flashPercentage" class="mt-2 fw-bold">0%</div>
+        </div>
+      </div>
+
+      <section class="row g-3 status-row mb-3" aria-label="Overall status">
+        <div class="col-md-6">
+          <article class="metric-card shadow-sm border-0">
             <span>Progress</span>
             <strong id="progressText">0 / 0 passed</strong>
           </article>
         </div>
-        <div class="col-md-4">
-          <article class="metric-card">
+        <div class="col-md-6">
+          <article class="metric-card shadow-sm border-0">
             <span>Last Message</span>
             <strong id="lastMessage">Waiting for serial</strong>
           </article>
@@ -100,7 +116,7 @@
             <div class="action-row">
               <button id="runButton" class="btn btn-primary-soft btn-lg" type="button" disabled>Run Test</button>
               <button id="cleanupButton" class="btn btn-outline-secondary" type="button" disabled>Stop Mode</button>
-              <button id="bleConnectButton" class="btn btn-info d-none" type="button">Connect BLE Device</button>
+              <button id="rs485ConnectButton" class="btn btn-info d-none" type="button">Connect RS485 Jig</button>
             </div>
             <details class="engineer-details">
               <summary>Engineer details: raw command JSON</summary>

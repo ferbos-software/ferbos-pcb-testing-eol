@@ -90,6 +90,12 @@ export class SerialClient extends EventTarget {
     });
   }
 
+  async sendString(text) {
+    if (!this.writer) throw new Error("Serial is not connected");
+    await this.writer.write(new TextEncoder().encode(text));
+    this.dispatch("tx", { line: text.trim(), request: { cmd: "raw_string" } });
+  }
+
   async sendRaw(rawJson, timeoutMs = 3000) {
     const parsed = JSON.parse(rawJson);
     if (!parsed.id) {

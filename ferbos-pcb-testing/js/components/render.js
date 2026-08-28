@@ -18,10 +18,10 @@ export function createRenderer(elements, handlers) {
     elements.runButton.textContent = (test?.manualDone && (testState === "running" || testState === "waiting")) ? "Done" : "Run Test";
     elements.runButton.disabled = !state.connected || !state.selectedTestId;
     elements.cleanupButton.disabled = !state.connected || !getTestById(state.selectedTestId)?.followUpCommand;
-    if (state.selectedTestId === "ble") {
-      elements.bleConnectButton.classList.remove("d-none");
+    if (state.selectedTestId === "rs485") {
+      elements.rs485ConnectButton.classList.remove("d-none");
     } else {
-      elements.bleConnectButton.classList.add("d-none");
+      elements.rs485ConnectButton.classList.add("d-none");
     }
     elements.sendRawButton.disabled = !state.connected;
     elements.lastMessage.textContent = state.lastMessage;
