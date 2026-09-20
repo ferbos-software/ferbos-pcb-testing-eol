@@ -1,17 +1,78 @@
+// Inputs the operator fills once before starting the automatic sequence.
+// Values are matched by name against test parameters (e.g. ssid/password).
+export const SEQUENCE_INPUTS = [
+  { name: "unitId", label: "PCB Serial / Unit ID", value: "", placeholder: "optional, tags the exported log" },
+  { name: "ssid", label: "WiFi SSID", value: "FactoryAP" },
+  { name: "password", label: "WiFi Password", value: "", type: "password" },
+  { name: "rs485Enabled", label: "RS485 jig connected on this station", value: true, type: "checkbox" }
+];
+
+const hasEvent = (events, test, state) => events.some((event) => event.test === test && event.state === state);
+
+// ESP-IDF wifi_err_reason_t, limited to the codes an EOL station actually hits.
+// The operator needs to know whether to fix the password, the antenna, or the AP.
+const WIFI_DISCONNECT_REASONS = {
+  2: "authentication expired",
+  4: "association expired",
+  5: "AP has too many clients",
+  15: "wrong WiFi password (4-way handshake timed out)",
+  16: "group key update timed out",
+  17: "wrong password or mismatched security settings",
+  23: "802.1X authentication failed",
+  200: "beacon timeout, AP signal lost",
+  201: "SSID not found — check the SSID and that the AP is in range",
+  202: "authentication failed — check the password",
+  203: "association failed",
+  204: "handshake timed out",
+  205: "connection failed",
+  208: "no AP found with compatible security"
+};
+
+export function explainWifiDisconnect(detail) {
+  const code = Number(/reason=(\d+)/.exec(detail ?? "")?.[1]);
+  const reason = WIFI_DISCONNECT_REASONS[code];
+  if (!Number.isFinite(code)) {
+    return detail || "wifi disconnected";
+  }
+  return reason ? `${reason} (reason=${code})` : `wifi disconnected (reason=${code})`;
+}
+
+// Each test:
+// - command/parameters: JSON sent to S3. Parameter values are overridden by SEQUENCE_INPUTS of the same name.
+// - phases: async events to wait for after the response, in order. Each phase shows a hint to the operator
+//   and fails the test if the event does not arrive within timeoutMs.
+// - followUpCommand: always sent after the phases finish (pass, fail, or abort) to put the board back in idle.
+// - criteria: individually checked; the test passes only when every criterion is met.
+// - gate: when this test fails, the remaining tests are skipped (board is not responding at all).
+// - requiresJig: skipped when the operator disables the RS485 jig for this station.
+// - hostCheck: run on the PC instead of sending a command to S3 (the runner is given a matching handler).
+// - dependsOn: skipped unless every listed test passed earlier in the same run.
 export const TESTS = [
+  {
+    id: "jig",
+    label: "RS485 Jig Check",
+    summary: "Check that the USB-RS485 jig adapter on this station is connected before testing.",
+    hostCheck: "jig",
+    requiresJig: true,
+    parameters: [],
+    criteria: [
+      { label: "Jig serial port is open", check: ({ response }) => Boolean(response?.ok) }
+    ]
+  },
   {
     id: "ping",
     label: "S3 Firmware Alive",
     summary: "Check S3 firmware, serial RX/TX, and command parser.",
     command: "ping",
     timeoutMs: 3000,
+    retries: 2,
+    gate: true,
     parameters: [],
     criteria: [
-      "A response message is received",
-      "id and cmd match the request",
-      "ok is true"
-    ],
-    pass: ({ response }) => Boolean(response?.ok)
+      { label: "A response message is received", check: ({ response }) => Boolean(response) },
+      { label: "id and cmd match the request", check: ({ response }) => response?.cmd === "ping" },
+      { label: "ok is true", check: ({ response }) => Boolean(response?.ok) }
+    ]
   },
   {
     id: "info",
@@ -21,14 +82,16 @@ export const TESTS = [
     timeoutMs: 3000,
     parameters: [],
     criteria: [
-      "Response ok is true",
-      "detail contains chip_model",
-      "detail contains cores and free_heap"
-    ],
-    pass: ({ response }) => {
-      const detail = response?.detail ?? "";
-      return Boolean(response?.ok && detail.includes("chip_model") && detail.includes("cores") && detail.includes("free_heap"));
-    }
+      { label: "Response ok is true", check: ({ response }) => Boolean(response?.ok) },
+      { label: "detail contains chip_model", check: ({ response }) => (response?.detail ?? "").includes("chip_model") },
+      {
+        label: "detail contains cores and free_heap",
+        check: ({ response }) => {
+          const detail = response?.detail ?? "";
+          return detail.includes("cores") && detail.includes("free_heap");
+        }
+      }
+    ]
   },
   {
     id: "c6",
@@ -41,14 +104,10 @@ export const TESTS = [
       { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
     ],
     criteria: [
-      "Final response ok is true",
-      "detail contains processed_by=c6-zigbee",
-      "c6 rx_ok event is received"
-    ],
-    pass: ({ response, events }) => {
-      const detail = response?.detail ?? "";
-      return Boolean(response?.ok && detail.includes("processed_by=c6-zigbee") && events.some((event) => event.test === "c6" && event.state === "rx_ok"));
-    }
+      { label: "Final response ok is true", check: ({ response }) => Boolean(response?.ok) },
+      { label: "detail contains processed_by=c6-zigbee", check: ({ response }) => (response?.detail ?? "").includes("processed_by=c6-zigbee") },
+      { label: "c6 rx_ok event is received", check: ({ events }) => hasEvent(events, "c6", "rx_ok") }
+    ]
   },
   {
     id: "ethernet",
@@ -57,19 +116,18 @@ export const TESTS = [
     command: "eth_start",
     timeoutMs: 3000,
     followUpCommand: "eth_stop",
-    manualDone: true,
     parameters: [],
-    criteria: [
-      "eth_start response ok true",
-      "ethernet link_up event is received",
-      "ethernet got_ip event is received",
-      "ethernet link_down event is received"
+    phases: [
+      { waitFor: "link_up", hint: "Plug the Ethernet cable into the PCB", timeoutMs: 60000 },
+      { waitFor: "got_ip", hint: "Cable detected. Waiting for DHCP IP...", timeoutMs: 30000 },
+      { waitFor: "link_down", hint: "IP received. Unplug the Ethernet cable now", timeoutMs: 60000 }
     ],
-    pass: ({ response, events }) => {
-      const has = (state) => events.some((event) => event.test === "ethernet" && event.state === state);
-      return Boolean(response?.ok && has("link_up") && has("got_ip") && has("link_down"));
-    },
-    waitingStates: ["link_up", "got_ip", "link_down"]
+    criteria: [
+      { label: "eth_start response ok true", check: ({ response }) => Boolean(response?.ok) },
+      { label: "ethernet link_up event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_up") },
+      { label: "ethernet got_ip event is received", check: ({ events }) => hasEvent(events, "ethernet", "got_ip") },
+      { label: "ethernet link_down event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_down") }
+    ]
   },
   {
     id: "wifi",
@@ -78,21 +136,25 @@ export const TESTS = [
     command: "wifi_connect",
     timeoutMs: 3000,
     followUpCommand: "wifi_stop",
-    manualDone: true,
     parameters: [
       { name: "ssid", label: "SSID", value: "FactoryAP" },
       { name: "password", label: "Password", value: "", type: "password" }
     ],
-    criteria: [
-      "wifi_connect response ok true",
-      "wifi connecting event is received",
-      "wifi got_ip event is received"
+    phases: [
+      {
+        waitFor: "got_ip",
+        hint: "Connecting to WiFi, waiting for IP...",
+        timeoutMs: 60000,
+        // A disconnect means this attempt is over; the grace window covers a firmware retry.
+        failOn: ["disconnected"],
+        failGraceMs: 5000,
+        describeFailure: (event) => `WiFi could not connect: ${explainWifiDisconnect(event.detail)}`
+      }
     ],
-    pass: ({ response, events }) => {
-      const has = (state) => events.some((event) => event.test === "wifi" && event.state === state);
-      return Boolean(response?.ok && has("got_ip"));
-    },
-    waitingStates: ["got_ip"]
+    criteria: [
+      { label: "wifi_connect response ok true", check: ({ response }) => Boolean(response?.ok) },
+      { label: "wifi got_ip event is received", check: ({ events }) => hasEvent(events, "wifi", "got_ip") }
+    ]
   },
   {
     id: "rs485",
@@ -100,22 +162,45 @@ export const TESTS = [
     summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",
     command: "rs485_exchange",
     timeoutMs: 2500,
+    requiresJig: true,
+    dependsOn: ["jig"],
     parameters: [
       { name: "payload", label: "TX payload", value: "EOL_RS485_PING" },
       { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
     ],
     criteria: [
-      "Response ok true",
-      "rs485 rx event is received",
-      "detail contains tx and rx"
-    ],
-    pass: ({ response, events }) => {
-      const detail = response?.detail ?? "";
-      return Boolean(response?.ok && detail.includes("tx=") && detail.includes("rx=") && events.some((event) => event.test === "rs485" && event.state === "rx"));
-    }
+      { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
+      { label: "rs485 rx event is received", check: ({ events }) => hasEvent(events, "rs485", "rx") },
+      {
+        label: "detail contains tx and rx",
+        check: ({ response }) => {
+          const detail = response?.detail ?? "";
+          return detail.includes("tx=") && detail.includes("rx=");
+        }
+      }
+    ]
   }
 ];
 
 export function getTestById(id) {
   return TESTS.find((test) => test.id === id);
+}
+
+export function evaluateCriteria(test, context) {
+  return test.criteria.map((criterion) => {
+    try {
+      return Boolean(criterion.check(context));
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function buildPayload(test, inputs = {}) {
+  const payload = {};
+  for (const parameter of test.parameters) {
+    const value = inputs[parameter.name] ?? parameter.value ?? "";
+    payload[parameter.name] = parameter.type === "number" ? Number(value) : value;
+  }
+  return payload;
 }

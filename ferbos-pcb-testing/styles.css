@@ -401,6 +401,30 @@ h3 {
   background: var(--warn-soft);
 }
 
+.test-item[data-status="skipped"] .status-pill,
+.test-item[data-status="skipped"] .step-number {
+  color: var(--muted);
+  background: var(--idle-soft);
+}
+
+.test-reason {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.test-reason.is-failed {
+  color: var(--fail);
+  background: var(--fail-soft);
+}
+
+.test-reason.is-skipped {
+  color: var(--muted);
+  background: var(--idle-soft);
+}
+
 .selected-test {
   padding: 16px;
   border: 1px solid var(--line);
@@ -471,6 +495,285 @@ h3 {
   padding: 10px 12px;
 }
 
+.identity-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--ok);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.identity-card[data-state="empty"] {
+  border-left-color: var(--idle);
+}
+
+.identity-card[data-state="empty"] .identity-mac {
+  color: var(--soft-muted);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.identity-card[data-state="empty"] .identity-derived {
+  display: none;
+}
+
+.identity-main {
+  min-width: 0;
+}
+
+.identity-mac {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.identity-derived {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.identity-derived code {
+  color: var(--blue-strong);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.identity-secondary {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.identity-secondary code {
+  color: var(--ink);
+}
+
+.identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.flash-assist-identity {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--ok-soft);
+}
+
+.flash-assist-identity span {
+  color: var(--ok);
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.flash-assist-identity strong {
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1.15rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.sequence-form {
+  display: grid;
+  gap: 10px;
+}
+
+.sequence-form label {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.sequence-form label.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sequence-form .form-check-input {
+  margin: 0;
+}
+
+.port-guide {
+  margin: 12px 0 6px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.port-guide strong {
+  color: var(--ink);
+}
+
+.port-guide li[data-saved="yes"] strong {
+  color: var(--ok);
+}
+
+.port-guide-reset {
+  padding: 0;
+  color: var(--muted) !important;
+  font-size: 0.74rem;
+  text-decoration: underline;
+}
+
+.port-guide-note {
+  margin: 0;
+  color: var(--soft-muted);
+  font-size: 0.74rem;
+}
+
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field .form-control {
+  padding-right: 58px;
+  width: 100%;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.password-toggle:hover {
+  color: var(--blue-strong);
+  background: var(--blue-soft);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.sequence-banner {
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--idle);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.sequence-banner-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sequence-banner-title {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.sequence-banner-text {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.sequence-banner-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+}
+
+.sequence-banner-list li[data-kind="fail"] {
+  color: var(--fail);
+  font-weight: 700;
+}
+
+.sequence-banner-list li[data-kind="skip"] {
+  color: var(--muted);
+}
+
+.sequence-banner[data-status="running"] {
+  border-left-color: var(--blue);
+  background: linear-gradient(90deg, var(--blue-soft), var(--surface-soft) 55%);
+}
+
+.sequence-banner[data-status="running"] .sequence-banner-title {
+  color: var(--blue-strong);
+  font-size: 1.7rem;
+}
+
+.sequence-banner[data-status="pass"] {
+  border-left-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.sequence-banner[data-status="pass"] .sequence-banner-title {
+  color: var(--ok);
+  font-size: 2.4rem;
+}
+
+.sequence-banner[data-status="fail"] {
+  border-left-color: var(--fail);
+  background: var(--fail-soft);
+}
+
+.sequence-banner[data-status="fail"] .sequence-banner-title {
+  color: var(--fail);
+  font-size: 2.4rem;
+}
+
+.sequence-banner[data-status="aborted"] {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -482,6 +785,10 @@ h3 {
   margin-top: 18px;
   border-top: 1px solid var(--line);
   padding-top: 14px;
+}
+
+.engineer-details .parameter-form {
+  margin-top: 14px;
 }
 
 .engineer-details summary {
@@ -499,53 +806,87 @@ h3 {
 }
 
 .event-log {
-  display: grid;
-  align-content: start;
-  gap: 10px;
   height: 640px;
   overflow: auto;
-  padding-right: 4px;
-}
-
-.log-entry {
-  border: 1px solid var(--line);
-  border-left: 4px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #fff;
-}
-
-.log-entry.rx {
-  border-left-color: var(--blue);
-}
-
-.log-entry.tx {
-  border-left-color: #526b8f;
-}
-
-.log-entry.ok {
-  border-left-color: var(--ok);
-  background: #fbfffd;
-}
-
-.log-entry.error {
-  border-left-color: var(--fail);
-  background: #fffafa;
-}
-
-.log-entry strong {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--ink);
-  font-size: 0.82rem;
-}
-
-.log-entry code {
-  display: block;
+  padding: 12px 14px;
+  border: 1px solid #0b1220;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #cbd5e1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
   overflow-wrap: anywhere;
-  color: #4a5568;
-  font-size: 0.76rem;
-  line-height: 1.45;
+  scrollbar-color: #334155 #0f172a;
+  tab-size: 2;
+}
+
+.event-log.is-empty::before {
+  content: "Waiting for serial...";
+  color: #475569;
+}
+
+.log-line {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  gap: 0 10px;
+  padding: 1px 0;
+}
+
+.log-line:hover {
+  background: #1e293b;
+}
+
+.log-time {
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-tag {
+  min-width: 3ch;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.log-text {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.log-line[data-kind="tx"] .log-tag,
+.log-line[data-kind="tx"] .log-text {
+  color: #7dd3fc;
+}
+
+.log-line[data-kind="rx"] .log-tag,
+.log-line[data-kind="rx"] .log-text {
+  color: #e2e8f0;
+}
+
+.log-line[data-kind="ok"] .log-tag,
+.log-line[data-kind="ok"] .log-text {
+  color: #6ee7b7;
+}
+
+.log-line[data-kind="warn"] .log-tag,
+.log-line[data-kind="warn"] .log-text {
+  color: #fcd34d;
+}
+
+.log-line[data-kind="error"] .log-tag,
+.log-line[data-kind="error"] .log-text {
+  color: #fda4af;
+}
+
+/* A panic dump must not scroll past looking like ordinary red text. */
+.log-line[data-fault="yes"] {
+  background: #4c0519;
+}
+
+.log-line[data-fault="yes"] .log-tag,
+.log-line[data-fault="yes"] .log-text {
+  color: #fecdd3;
+  font-weight: 700;
 }
 
 .flash-assist-modal {

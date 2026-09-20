@@ -38,11 +38,15 @@
             <div class="card-body text-center">
               <div class="badge bg-primary mb-2 fs-6">Step 2</div>
               <h4 class="card-title fw-bold">Start Testing</h4>
-              <p class="text-muted small">Jalankan urutan test serial untuk validasi fungsional komponen.</p>
-              <div class="mt-4">
-                <button id="connectButton" class="btn btn-primary btn-lg w-100" type="button">Connect Serial (115200)</button>
-                <div id="connectionStatus" class="mt-2 fw-bold text-secondary">Disconnected</div>
+              <p class="text-muted small">Isi data sekali, lalu urutan test berjalan otomatis. Ikuti instruksi di panel Operator.</p>
+              <form id="sequenceForm" class="sequence-form text-start mt-3" autocomplete="off"></form>
+              <ol id="portGuide" class="port-guide text-start"></ol>
+              <button id="forgetPortsButton" class="btn btn-link btn-sm port-guide-reset" type="button">Forget saved ports</button>
+              <div class="d-grid gap-2 mt-3">
+                <button id="startSequenceButton" class="btn btn-primary btn-lg" type="button">Start Test Sequence</button>
+                <button id="abortSequenceButton" class="btn btn-outline-danger d-none" type="button">Abort Sequence</button>
               </div>
+              <div id="connectionStatus" class="mt-2 fw-bold text-secondary">Disconnected</div>
             </div>
           </div>
         </div>
@@ -62,6 +66,25 @@
           </div>
         </div>
       </div>
+
+      <!-- Device identity: MAC read by esptool during flashing, used for the sticker -->
+      <section id="identityCard" class="identity-card mb-4" aria-label="Device identity">
+        <div class="identity-main">
+          <span class="section-kicker">Gateway identity — put this on the sticker</span>
+          <strong id="identityMac" class="identity-mac">--:--:--:--:--:--</strong>
+          <div class="identity-derived">
+            <span>Gateway ID <code id="identityGatewayId">-</code></span>
+            <span>BLE name <code id="identityBleName">-</code></span>
+            <span>MQTT <code id="identityMqttTopic">-</code></span>
+          </div>
+          <p id="identityC6" class="identity-secondary d-none">ESP32-C6 (Zigbee) MAC <code id="identityC6Mac">-</code></p>
+        </div>
+        <div class="identity-actions">
+          <button id="copyMacButton" class="btn btn-primary-soft" type="button">Copy MAC</button>
+          <button id="copyIdentityButton" class="btn btn-outline-secondary btn-sm" type="button">Copy all</button>
+          <button id="readMacButton" class="btn btn-outline-primary btn-sm" type="button">Read MAC from board</button>
+        </div>
+      </section>
 
       <!-- Flash Progress Bar (Global) -->
       <div id="flashProgress" class="card border-0 shadow-sm mb-4 bg-dark text-white" style="display: none;">
@@ -103,23 +126,32 @@
           </div>
         </aside>
 
-        <section class="col-xl-4 col-lg-7" aria-label="Selected test">
+        <section class="col-xl-4 col-lg-7" aria-label="Operator instructions">
           <div class="panel h-100">
             <div class="panel-header">
               <div>
                 <span class="section-kicker">Current step</span>
-                <h2>Test Instructions</h2>
+                <h2>Operator</h2>
               </div>
             </div>
-            <div id="selectedTest" class="selected-test"></div>
-            <form id="parameterForm" class="parameter-form"></form>
-            <div class="action-row">
-              <button id="runButton" class="btn btn-primary-soft btn-lg" type="button" disabled>Run Test</button>
-              <button id="cleanupButton" class="btn btn-outline-secondary" type="button" disabled>Stop Mode</button>
-              <button id="rs485ConnectButton" class="btn btn-info d-none" type="button">Connect RS485 Jig</button>
+            <div id="sequenceBanner" class="sequence-banner" data-status="idle" aria-live="polite">
+              <span id="sequenceBannerKicker" class="sequence-banner-kicker"></span>
+              <strong id="sequenceBannerTitle" class="sequence-banner-title"></strong>
+              <p id="sequenceBannerText" class="sequence-banner-text"></p>
+              <ul id="sequenceBannerList" class="sequence-banner-list"></ul>
             </div>
+            <div id="selectedTest" class="selected-test mt-3"></div>
             <details class="engineer-details">
-              <summary>Engineer details: raw command JSON</summary>
+              <summary>Engineer details: manual control and raw command JSON</summary>
+              <div class="action-row">
+                <button id="connectButton" class="btn btn-outline-secondary btn-sm" type="button">Connect Serial (115200)</button>
+                <button id="rs485ConnectButton" class="btn btn-outline-secondary btn-sm" type="button">Connect RS485 Jig (9600)</button>
+              </div>
+              <form id="parameterForm" class="parameter-form"></form>
+              <div class="action-row">
+                <button id="runButton" class="btn btn-primary-soft" type="button" disabled>Run Selected Test</button>
+                <button id="cleanupButton" class="btn btn-outline-secondary" type="button" disabled>Stop Mode</button>
+              </div>
               <textarea id="rawJsonInput" class="form-control raw-input" spellcheck="false" rows="5" aria-label="Raw JSON command"></textarea>
               <button id="sendRawButton" class="btn btn-outline-secondary btn-sm mt-2" type="button" disabled>Send Raw JSON</button>
             </details>
@@ -131,9 +163,12 @@
             <div class="panel-header">
               <div>
                 <span class="section-kicker">Live serial</span>
-                <h2>Timeline</h2>
+                <h2>Serial Monitor</h2>
               </div>
-              <button id="clearLogButton" class="btn btn-outline-secondary btn-sm" type="button">Clear</button>
+              <div class="d-flex gap-2">
+                <button id="exportLogButton" class="btn btn-outline-secondary btn-sm" type="button">Export</button>
+                <button id="clearLogButton" class="btn btn-outline-secondary btn-sm" type="button">Clear</button>
+              </div>
             </div>
             <div id="eventLog" class="event-log" aria-live="polite"></div>
           </div>
@@ -164,6 +199,10 @@
             </div>
           </div>
           <div class="modal-body">
+            <div id="flashAssistIdentity" class="flash-assist-identity d-none">
+              <span>Device MAC</span>
+              <strong id="flashAssistMac">--:--:--:--:--:--</strong>
+            </div>
             <div class="flash-assist-status">
               <div id="flashAssistIcon" class="flash-assist-icon is-busy" aria-hidden="true">
                 <span class="spinner-border spinner-border-sm"></span>

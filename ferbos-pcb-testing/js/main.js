@@ -1,10 +1,36 @@
-import { createRenderer } from "./components/render.js";
+import { createRenderer, renderSequenceForm } from "./components/render.js";
 import { SerialClient } from "./core/serialClient.js";
+import { deriveIdentity } from "./core/identity.js";
+import { redactLine, redactPayload } from "./core/redact.js";
+import { classifyPlainLine, detectFirmwareFault } from "./core/serialLines.js";
+import { createSequenceRunner } from "./core/sequenceRunner.js";
 import { createStore } from "./core/state.js";
-import { TESTS, getTestById } from "./core/testRegistry.js";
-import { flashFirmware } from "./flasher.js";
+import { SEQUENCE_INPUTS, TESTS, buildPayload, evaluateCriteria, getTestById } from "./core/testRegistry.js";
+import { flashFirmware, readDeviceMac } from "./flasher.js";
 
 const elements = {
+  identityCard: document.querySelector("#identityCard"),
+  identityMac: document.querySelector("#identityMac"),
+  identityGatewayId: document.querySelector("#identityGatewayId"),
+  identityBleName: document.querySelector("#identityBleName"),
+  identityMqttTopic: document.querySelector("#identityMqttTopic"),
+  identityC6: document.querySelector("#identityC6"),
+  identityC6Mac: document.querySelector("#identityC6Mac"),
+  copyMacButton: document.querySelector("#copyMacButton"),
+  copyIdentityButton: document.querySelector("#copyIdentityButton"),
+  portGuide: document.querySelector("#portGuide"),
+  forgetPortsButton: document.querySelector("#forgetPortsButton"),
+  readMacButton: document.querySelector("#readMacButton"),
+  flashAssistIdentity: document.querySelector("#flashAssistIdentity"),
+  flashAssistMac: document.querySelector("#flashAssistMac"),
+  startSequenceButton: document.querySelector("#startSequenceButton"),
+  abortSequenceButton: document.querySelector("#abortSequenceButton"),
+  sequenceForm: document.querySelector("#sequenceForm"),
+  sequenceBanner: document.querySelector("#sequenceBanner"),
+  sequenceBannerKicker: document.querySelector("#sequenceBannerKicker"),
+  sequenceBannerTitle: document.querySelector("#sequenceBannerTitle"),
+  sequenceBannerText: document.querySelector("#sequenceBannerText"),
+  sequenceBannerList: document.querySelector("#sequenceBannerList"),
   connectButton: document.querySelector("#connectButton"),
   flashTesterS3Button: document.querySelector("#flashTesterS3Button"),
   flashTesterC6Button: document.querySelector("#flashTesterC6Button"),
@@ -35,8 +61,19 @@ const elements = {
   rs485ConnectButton: document.querySelector("#rs485ConnectButton"),
   sendRawButton: document.querySelector("#sendRawButton"),
   rawJsonInput: document.querySelector("#rawJsonInput"),
+  exportLogButton: document.querySelector("#exportLogButton"),
   clearLogButton: document.querySelector("#clearLogButton"),
   eventLog: document.querySelector("#eventLog")
+};
+
+const MAIN_BAUD = 115200;
+const BOOT_TIMEOUT_MS = 4000;
+const PORT_PROBE_TIMEOUT_MS = 2500;
+const JIG_BAUD = 9600;
+const STORAGE_KEYS = {
+  inputs: "ferbos.eol.sequenceInputs",
+  mainPort: "ferbos.eol.port.main",
+  jigPort: "ferbos.eol.port.jig"
 };
 
 const serial = new SerialClient();
@@ -45,6 +82,16 @@ const render = createRenderer(elements, {
   onSelectTest: (testId) => store.selectTest(testId)
 });
 const store = createStore(render);
+const runner = createSequenceRunner({
+  serial,
+  store,
+  log: (entry) => store.addLog(entry),
+  hostChecks: {
+    jig: async () => (rs485Serial.isConnected
+      ? { ok: true, detail: `RS485 jig connected (${describePort(rs485Serial.port)}, ${JIG_BAUD} baud)` }
+      : { ok: false, detail: "RS485 jig serial port is not connected" })
+  }
+});
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const flashAssistModal = new bootstrap.Modal(elements.flashAssistModal);
@@ -62,29 +109,51 @@ const FLASH_PROFILE_LABELS = {
 };
 
 const FLASH_FILE_COUNTS = {
-  tester: { s3: 3, c6: 3 },
+  tester: { s3: 4, c6: 3 },
   production: { s3: 4, c6: 4 }
 };
 
+renderSequenceForm(elements.sequenceForm, SEQUENCE_INPUTS, loadJson(STORAGE_KEYS.inputs) ?? {});
+refreshPortMemory();
 wireUi();
 wireSerial();
 wireRs485();
 render(store.getState());
 
 function wireUi() {
+  elements.startSequenceButton.addEventListener("click", () => startSequence());
+  elements.abortSequenceButton.addEventListener("click", () => runner.abort());
+  elements.sequenceForm.addEventListener("input", () => saveJson(STORAGE_KEYS.inputs, readSequenceInputs()));
+
   elements.connectButton.addEventListener("click", async () => {
     try {
       if (serial.isConnected) {
         await serial.disconnect();
         return;
       }
-      await serial.connect({ baudRate: 115200 });
+      await connectMainSerial({ allowPicker: true });
+    } catch (error) {
+      pushError(error);
+    }
+  });
+
+  elements.rs485ConnectButton.addEventListener("click", async () => {
+    try {
+      if (rs485Serial.isConnected) {
+        await rs485Serial.disconnect();
+        return;
+      }
+      await connectJigSerial({ allowPicker: true });
     } catch (error) {
       pushError(error);
     }
   });
 
   async function handleFlashClick(profile, target) {
+    if (runner.isRunning()) {
+      pushError(new Error("Wait for the test sequence to finish or abort it before flashing."));
+      return;
+    }
     if (serial.isConnected) {
       await serial.disconnect();
       await wait(250);
@@ -104,47 +173,324 @@ function wireUi() {
   elements.resetButton.addEventListener("click", () => {
     elements.parameterForm.dataset.testId = "";
     store.reset();
-    render(store.getState());
   });
 
   elements.clearLogButton.addEventListener("click", () => store.clearLog());
-  elements.runButton.addEventListener("click", () => {
-    const test = getTestById(store.getState().selectedTestId);
-    if (!test) return;
-    const testState = store.getState().tests[test.id]?.state;
-    if (test.manualDone && (testState === "running" || testState === "waiting")) {
-      finishManualTest(test);
-    } else {
-      runSelectedTest();
-    }
-  });
-  elements.cleanupButton.addEventListener("click", () => runCleanupCommand());
-  
-  elements.rs485ConnectButton.addEventListener("click", async () => {
-    try {
-      if (rs485Serial.isConnected) {
-        await rs485Serial.disconnect();
-        elements.rs485ConnectButton.textContent = "Connect RS485 Jig";
-        elements.rs485ConnectButton.classList.replace("btn-danger", "btn-info");
-        return;
-      }
-      await rs485Serial.connect({ baudRate: 9600 });
-      elements.rs485ConnectButton.classList.replace("btn-info", "btn-danger");
-      store.addLog({ kind: "ok", title: "RS485", message: "Jig connected. Listening for PING..." });
-    } catch (error) {
-      pushError(error);
-    }
-  });
-
+  elements.exportLogButton.addEventListener("click", () => exportLog());
+  elements.runButton.addEventListener("click", () => runSelectedTest());
+  elements.cleanupButton.addEventListener("click", () => stopSelectedTest());
   elements.sendRawButton.addEventListener("click", () => sendRaw());
+  elements.copyMacButton.addEventListener("click", () => copyIdentity("mac"));
+  elements.copyIdentityButton.addEventListener("click", () => copyIdentity("all"));
+  elements.readMacButton.addEventListener("click", () => readMacFromBoard());
+  elements.forgetPortsButton.addEventListener("click", () => forgetAllPorts());
 
   elements.parameterForm.addEventListener("input", () => {
     const test = getTestById(store.getState().selectedTestId);
     if (test) {
-      elements.rawJsonInput.value = JSON.stringify({ id: "preview", cmd: test.command, ...readParameters(test) }, null, 2);
+      elements.rawJsonInput.value = JSON.stringify({ id: "preview", cmd: test.command, ...buildPayload(test, readParameters()) }, null, 2);
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Automatic test sequence
+// ---------------------------------------------------------------------------
+
+async function startSequence() {
+  if (runner.isRunning()) {
+    return;
+  }
+
+  const inputs = readSequenceInputs();
+  saveJson(STORAGE_KEYS.inputs, inputs);
+
+  try {
+    store.setSequence({ status: "running", currentTestId: null, hint: "Connecting to the board..." });
+    await connectMainSerial({ allowPicker: true });
+  } catch (error) {
+    store.setSequence({ status: "idle", currentTestId: null, hint: "" });
+    if (error.name === "NotFoundError") {
+      store.addLog({ kind: "error", title: "Sequence", message: "Port selection cancelled. Click Start Test Sequence again." });
+    } else {
+      pushError(error);
+    }
+    return;
+  }
+
+  // A missing jig is reported by the RS485 Jig Check step rather than blocking the whole run.
+  if (inputs.rs485Enabled) {
+    try {
+      store.setSequence({ hint: "Connecting to the RS485 jig..." });
+      await connectJigSerial({ allowPicker: true });
+    } catch (error) {
+      const message = error.name === "NotFoundError"
+        ? "Jig port selection cancelled."
+        : error.name === "SecurityError"
+          ? "The browser needs a fresh click to open a second port. Use 'Connect RS485 Jig' under Engineer details, then Start again."
+          : error.message;
+      store.addLog({ kind: "error", title: "RS485 Jig", message });
+    }
+  }
+
+  try {
+    await runner.run(TESTS, inputs);
+  } catch (error) {
+    pushError(error);
+  }
+}
+
+function readSequenceInputs() {
+  const form = elements.sequenceForm;
+  const values = {};
+  for (const input of SEQUENCE_INPUTS) {
+    const field = form.elements[input.name];
+    if (!field) continue;
+    values[input.name] = input.type === "checkbox" ? field.checked : field.value;
+  }
+  return values;
+}
+
+// ---------------------------------------------------------------------------
+// Port handling: reuse ports the browser already granted so steady-state runs
+// need no picker. Port identity is remembered by USB vendor/product id.
+// ---------------------------------------------------------------------------
+
+// Shows which port to pick and lets the browser paint before the modal picker steals focus.
+async function announcePortPick(hint) {
+  store.setSequence({ hint });
+  store.addLog({ kind: "tx", title: "Port", message: hint });
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+async function connectMainSerial({ allowPicker }) {
+  if (serial.isConnected) {
+    return;
+  }
+  const port = await findGrantedPort(STORAGE_KEYS.mainPort, [rs485Serial.port]);
+  if (!port && !allowPicker) {
+    throw new Error("S3 serial port is not connected");
+  }
+  if (!port) {
+    await announcePortPick("Choose the ESP32-S3 GATEWAY port (port 1 of 2)");
+  }
+
+  await serial.connect({ baudRate: MAIN_BAUD, port });
+
+  try {
+    await prepareBoard();
+  } catch (error) {
+    await serial.disconnect().catch(() => {});
+    // Drop the remembered port too, otherwise a cached wrong port would be retried forever
+    // and the picker would never reappear.
+    forgetPort(STORAGE_KEYS.mainPort);
+    throw error;
+  }
+
+  rememberPort(STORAGE_KEYS.mainPort, serial.port);
+}
+
+/**
+ * Reboots the board into its firmware and confirms this really is the S3.
+ *
+ * Flashing can leave the chip sitting in the ROM bootloader (always after Manual Boot Flash,
+ * and after any Auto Flash whose final reset did not take), where it answers nothing. A reset
+ * here recovers that without the operator touching the board, and waiting for the boot banner
+ * means the first ping is not racing the firmware's startup.
+ */
+async function prepareBoard() {
+  store.setSequence({ hint: "Resetting the board..." });
+  // Listen before pulsing reset: the S3 can print its boot banner while the reset is still settling.
+  const bootMessage = serial.waitForMessage((message) => message.type === "boot", BOOT_TIMEOUT_MS);
+
+  try {
+    await serial.resetIntoApplication();
+  } catch (error) {
+    store.addLog({ kind: "error", title: "Reset", message: `Auto reset unavailable (${error.message}). Continuing without it.` });
+  }
+
+  store.setSequence({ hint: "Waiting for the board to boot..." });
+  const boot = await bootMessage;
+  if (boot) {
+    store.addLog({ kind: "ok", title: "Boot", message: `${boot.target ?? "s3"} ready` });
+    return;
+  }
+
+  // No banner is not fatal on its own: the board may have booted before the listener attached.
+  store.setSequence({ hint: "Checking the board responds..." });
+  try {
+    await serial.sendCommand("ping", {}, PORT_PROBE_TIMEOUT_MS);
+    store.addLog({ kind: "ok", title: "Serial", message: "Board answered ping." });
+  } catch {
+    throw new Error(
+      "This port did not answer as the ESP32-S3. Check it is the gateway port and not the RS485 adapter, "
+      + "and if the board was just flashed in Manual Boot mode press RESET on the board, then Start again."
+    );
+  }
+}
+
+async function connectJigSerial({ allowPicker }) {
+  if (rs485Serial.isConnected) {
+    return;
+  }
+  const port = await findGrantedPort(STORAGE_KEYS.jigPort, [serial.port]);
+  if (!port && !allowPicker) {
+    throw new Error("RS485 jig port is not connected");
+  }
+  if (!port) {
+    await announcePortPick("Choose the USB-RS485 JIG adapter port (port 2 of 2) — not the gateway");
+  }
+  await rs485Serial.connect({ baudRate: JIG_BAUD, port });
+  rememberPort(STORAGE_KEYS.jigPort, rs485Serial.port);
+}
+
+async function findGrantedPort(storageKey, excludePorts) {
+  const saved = loadJson(storageKey);
+  if (!saved?.usbVendorId || !navigator.serial?.getPorts) {
+    return null;
+  }
+  const ports = await navigator.serial.getPorts();
+  const candidates = ports.filter((port) => {
+    if (excludePorts.includes(port)) return false;
+    const info = port.getInfo();
+    return info.usbVendorId === saved.usbVendorId && info.usbProductId === saved.usbProductId;
+  });
+  // Ambiguous (two identical adapters) falls back to the picker.
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function describePort(port) {
+  try {
+    const info = port?.getInfo?.() ?? {};
+    if (info.usbVendorId == null) return "serial port";
+    const hex = (value) => value.toString(16).padStart(4, "0");
+    return `USB ${hex(info.usbVendorId)}:${hex(info.usbProductId ?? 0)}`;
+  } catch {
+    return "serial port";
+  }
+}
+
+function rememberPort(storageKey, port) {
+  try {
+    const info = port?.getInfo?.() ?? {};
+    saveJson(storageKey, { usbVendorId: info.usbVendorId ?? null, usbProductId: info.usbProductId ?? null });
+  } catch {
+    // Port info is optional; the picker is still available.
+  }
+  refreshPortMemory();
+}
+
+function forgetPort(storageKey) {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+  refreshPortMemory();
+}
+
+// Mirrors what is cached into state so the operator can see which ports are remembered.
+function refreshPortMemory() {
+  store.setPortMemory({
+    main: describePortMemory(loadJson(STORAGE_KEYS.mainPort)),
+    jig: describePortMemory(loadJson(STORAGE_KEYS.jigPort))
+  });
+}
+
+function describePortMemory(saved) {
+  if (!saved?.usbVendorId) {
+    return null;
+  }
+  const hex = (value) => Number(value ?? 0).toString(16).padStart(4, "0");
+  return `USB ${hex(saved.usbVendorId)}:${hex(saved.usbProductId)}`;
+}
+
+async function forgetAllPorts() {
+  if (runner.isRunning()) {
+    pushError(new Error("Abort the test sequence before changing ports."));
+    return;
+  }
+  if (serial.isConnected) {
+    await serial.disconnect().catch(() => {});
+  }
+  if (rs485Serial.isConnected) {
+    await rs485Serial.disconnect().catch(() => {});
+  }
+  forgetPort(STORAGE_KEYS.mainPort);
+  forgetPort(STORAGE_KEYS.jigPort);
+  store.addLog({ kind: "ok", title: "Ports", message: "Saved ports cleared. The next Start will ask for them again." });
+}
+
+function loadJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage may be unavailable; inputs simply will not persist.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Log export (one file per PCB unit)
+// ---------------------------------------------------------------------------
+
+function exportLog() {
+  const state = store.getState();
+  const unitId = state.sequence.unitId || readSequenceInputs().unitId || "";
+  const s3Identity = deriveIdentity(state.identity.s3?.macAddress);
+  const report = {
+    unitId,
+    exportedAt: new Date().toISOString(),
+    identity: {
+      s3: s3Identity ? { ...s3Identity, chipName: state.identity.s3?.chipName, readAt: state.identity.s3?.at } : null,
+      c6: deriveIdentity(state.identity.c6?.macAddress)?.mac ?? null
+    },
+    sequence: {
+      status: state.sequence.status,
+      startedAt: state.sequence.startedAt,
+      finishedAt: state.sequence.finishedAt
+    },
+    tests: TESTS.map((test) => {
+      const result = state.tests[test.id];
+      return {
+        id: test.id,
+        label: test.label,
+        state: result.state,
+        reason: result.reason,
+        payload: redactPayload(result.payload),
+        response: result.response,
+        events: result.events,
+        criteria: test.criteria.map((criterion, index) => ({ label: criterion.label, met: result.criteria[index] }))
+      };
+    }),
+    logs: state.logs.map((log) => ({ at: log.at, kind: log.kind, title: log.title, line: log.line ?? null, message: log.message ?? null }))
+  };
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeUnit = (unitId || s3Identity?.gatewayId || "unit").replace(/[^\w.-]+/g, "_");
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `ferbos-eol-${safeUnit}-${stamp}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  store.addLog({ kind: "ok", title: "Export", message: `Saved ${link.download}` });
+}
+
+// ---------------------------------------------------------------------------
+// Firmware flashing (unchanged flow)
+// ---------------------------------------------------------------------------
 
 async function runFlashAttempt(port, target, modalCopy, options = {}) {
   updateFlashAssist({
@@ -157,11 +503,102 @@ async function runFlashAttempt(port, target, modalCopy, options = {}) {
     showClose: false
   });
 
-  return flashFirmware(port, target, updateFlashProgress, logFlashTool, options);
+  return flashFirmware(port, target, updateFlashProgress, logFlashTool, {
+    ...options,
+    onIdentity: (info) => recordIdentity(target, info)
+  });
+}
+
+// Called as soon as esptool identifies the chip, before any write, so a failed flash
+// still leaves the operator with a MAC to put on the sticker.
+function recordIdentity(target, { chipName, macAddress }) {
+  if (!deriveIdentity(macAddress)) {
+    return;
+  }
+
+  store.setIdentity(target, { chipName, macAddress });
+  const identity = deriveIdentity(macAddress);
+  elements.flashAssistMac.textContent = identity.mac;
+  elements.flashAssistIdentity.classList.remove("d-none");
+  store.addLog({
+    kind: "ok",
+    title: `${target.toUpperCase()} MAC`,
+    message: target === "s3"
+      ? `${identity.mac} — gateway id ${identity.gatewayId}, BLE ${identity.bleName}`
+      : identity.mac
+  });
+}
+
+// Read-only MAC recovery for a board that is already running production firmware:
+// nothing is written, and the board is reset back into its application afterwards.
+async function readMacFromBoard() {
+  if (runner.isRunning()) {
+    pushError(new Error("Wait for the test sequence to finish or abort it before reading the MAC."));
+    return;
+  }
+
+  const wasConnected = serial.isConnected;
+  const label = elements.readMacButton.textContent;
+  elements.readMacButton.disabled = true;
+  elements.readMacButton.textContent = "Reading...";
+
+  try {
+    if (wasConnected) {
+      await serial.disconnect();
+      await wait(250);
+    }
+
+    const port = await navigator.serial.requestPort();
+    store.addLog({ kind: "tx", title: "Read MAC", message: "Connecting to the board without flashing." });
+    const { chipName, macAddress, target } = await readDeviceMac(port, logFlashTool);
+
+    if (!deriveIdentity(macAddress)) {
+      throw new Error(`Chip answered but returned no usable MAC (${chipName ?? "unknown chip"})`);
+    }
+    if (!target) {
+      throw new Error(`Unsupported chip for this product: ${chipName}`);
+    }
+
+    recordIdentity(target, { chipName, macAddress });
+  } catch (error) {
+    if (error.name === "NotFoundError") {
+      store.addLog({ kind: "error", title: "Read MAC", message: "Port selection was cancelled." });
+    } else {
+      store.addLog({ kind: "error", title: "Read MAC Failed", message: formatFlashError(error) });
+    }
+  } finally {
+    elements.readMacButton.textContent = label;
+    elements.readMacButton.disabled = false;
+    render(store.getState());
+  }
+}
+
+async function copyIdentity(mode) {
+  const identity = deriveIdentity(store.getState().identity.s3?.macAddress);
+  if (!identity) {
+    return;
+  }
+
+  const text = mode === "mac"
+    ? identity.mac
+    : [
+        `MAC        ${identity.mac}`,
+        `Gateway ID ${identity.gatewayId}`,
+        `BLE name   ${identity.bleName}`,
+        `MQTT       ${identity.mqttTopic}`
+      ].join("\n");
+
+  try {
+    await navigator.clipboard.writeText(text);
+    store.addLog({ kind: "ok", title: "Copied", message: mode === "mac" ? identity.mac : "Gateway identity copied to clipboard" });
+  } catch (error) {
+    pushError(new Error(`Could not copy: ${error.message}`));
+  }
 }
 
 function prepareManualFlash(profile, target) {
   flashSession = { profile, target, complete: false };
+  elements.flashAssistIdentity.classList.add("d-none");
   elements.flashProgress.style.display = "block";
   setFlashActionButtonsDisabled(true);
   elements.connectButton.disabled = true;
@@ -229,7 +666,7 @@ async function startAutoFlash() {
     });
 
     flashSession.complete = true;
-    completeFlashUi(target, result.manualResetRequired);
+    completeFlashUi(target, result.manualResetRequired, result.appDescriptor);
   } catch (error) {
     if (error.name === "NotFoundError") {
       showFlashPreparation(profile, target, "Port selection was cancelled. Click Auto Flash again when ready.");
@@ -273,7 +710,7 @@ async function startManualBootFlash() {
     const port = await navigator.serial.requestPort();
     store.addLog({ kind: "tx", title: `Manual Boot Flash ${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`, message: `Manual no-reset flash started for ESP32-${target.toUpperCase()}.` });
 
-    await runFlashAttempt(port, target, {
+    const result = await runFlashAttempt(port, target, {
       title: `Flashing ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]}`,
       status: "Connecting without reset",
       message: "Keep holding BOOT until the success message appears."
@@ -284,7 +721,7 @@ async function startManualBootFlash() {
     });
 
     flashSession.complete = true;
-    completeFlashUi(target, true);
+    completeFlashUi(target, true, result.appDescriptor);
   } catch (error) {
     if (error.name === "NotFoundError") {
       showManualBootInstructions(profile, target, error, "Port selection was cancelled. Hold BOOT, press RESET once, then click Manual Boot Flash again.");
@@ -344,17 +781,32 @@ function showManualBootInstructions(profile, target, error, messageOverride) {
   });
 }
 
-function completeFlashUi(target, manualResetNeeded) {
+function completeFlashUi(target, manualResetNeeded, appDescriptor) {
   const profile = flashSession?.profile ?? "tester";
-  store.addLog({ kind: "ok", title: "Flash Success", message: `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash.` });
+  const built = appDescriptor
+    ? `${appDescriptor.project} ${appDescriptor.version} (built ${appDescriptor.built}, IDF ${appDescriptor.idf})`
+    : null;
+  store.addLog({
+    kind: "ok",
+    title: "Flash Success",
+    message: built
+      ? `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash: ${built}`
+      : `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash.`
+  });
+  if (built) {
+    // Printed so it can be compared against the boot banner: if they disagree, a stale
+    // cached binary was written and the board is running something else.
+    store.addLog({ kind: "ok", title: "Verify", message: `Boot banner should report: ${appDescriptor.built}, IDF ${appDescriptor.idf}` });
+  }
   updateFlashProgress((FLASH_FILE_COUNTS[profile]?.[target] ?? 1) - 1, 100);
   elements.flashAssistCloseButton.textContent = "OK";
+  const identity = deriveIdentity(store.getState().identity[target]?.macAddress);
   updateFlashAssist({
     icon: "ok",
     title: `ESP32-${target.toUpperCase()} ${FLASH_PROFILE_LABELS[profile]} Complete`,
-    status: "Firmware verified successfully",
+    status: built ?? (identity ? `MAC ${identity.mac}` : "Firmware verified successfully"),
     message: manualResetNeeded
-      ? "Flash is complete. You can release BOOT now. Click OK to reload the tester before serial testing."
+      ? "Flash is complete. You can release BOOT now. Click OK to reload the tester; Start Test Sequence will reset the board into the firmware for you."
       : "Flash is complete. The board has been reset and is ready for serial testing.",
     showSteps: false,
     showRetry: false,
@@ -452,6 +904,10 @@ function setFlashAssistSteps(steps) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Serial event routing
+// ---------------------------------------------------------------------------
+
 function wireSerial() {
   serial.addEventListener("connection", (event) => {
     store.setConnected(event.detail.connected);
@@ -460,10 +916,13 @@ function wireSerial() {
       title: "Connection",
       message: event.detail.connected ? "Serial connected" : "Serial disconnected"
     });
+    if (!event.detail.connected && runner.isRunning()) {
+      runner.abort();
+    }
   });
 
   serial.addEventListener("tx", (event) => {
-    store.addLog({ kind: "tx", title: `TX ${event.detail.request.cmd}`, line: event.detail.line });
+    store.addLog({ kind: "tx", title: `TX ${event.detail.request.cmd}`, line: redactLine(event.detail.line) });
   });
 
   serial.addEventListener("rx", (event) => {
@@ -478,7 +937,13 @@ function wireSerial() {
   });
 
   serial.addEventListener("rx-invalid", (event) => {
-    store.addLog({ kind: "error", title: "Invalid JSON", line: event.detail.line, message: "Invalid JSON received" });
+    const line = event.detail.line;
+    store.addLog({ ...classifyPlainLine(line), line });
+
+    const fault = detectFirmwareFault(line);
+    if (fault) {
+      runner.reportFault(fault);
+    }
   });
 
   serial.addEventListener("error", (event) => pushError(event.detail.error));
@@ -486,95 +951,114 @@ function wireSerial() {
 
 function wireRs485() {
   rs485Serial.addEventListener("connection", (event) => {
+    store.setJigConnected(event.detail.connected);
     store.addLog({
       kind: event.detail.connected ? "ok" : "error",
       title: "RS485 Jig",
-      message: event.detail.connected ? "Jig serial connected" : "Jig serial disconnected"
+      message: event.detail.connected ? "Jig serial connected. Listening for PING..." : "Jig serial disconnected"
     });
   });
 
-  // Since EOL_RS485_PING is a raw string, not JSON, it will trigger rx-invalid on the SerialClient parser
-  rs485Serial.addEventListener("rx-invalid", async (event) => {
-    const text = event.detail.line || "";
-    if (text.includes("EOL_RS485_PING")) {
-      store.addLog({ kind: "rx", title: "RS485 IN", message: text });
-      try {
-        const reply = "EOL_RS485_PONG\n";
-        await rs485Serial.sendString(reply);
-        store.addLog({ kind: "tx", title: "RS485 OUT", message: reply.trim() });
-      } catch (err) {
-        pushError(err);
-      }
+  // The PC acts as the RS485 jig: any line containing the PING payload gets a PONG reply.
+  // The payload is a raw string, so it arrives through rx-invalid; rx covers a JSON-wrapped variant.
+  const replyToPing = async (line) => {
+    if (!line.includes("EOL_RS485_PING")) {
+      return;
     }
-  });
-
-  // Just in case they send a valid JSON instead of a raw string, catch it here too
-  rs485Serial.addEventListener("rx", async (event) => {
-    const line = event.detail.line || "";
-    if (line.includes("EOL_RS485_PING")) {
-      store.addLog({ kind: "rx", title: "RS485 IN", message: line });
-      try {
-        await rs485Serial.sendString("EOL_RS485_PONG\n");
-      } catch (err) {
-        pushError(err);
-      }
+    store.addLog({ kind: "rx", title: "RS485 IN", message: line });
+    try {
+      const reply = "EOL_RS485_PONG\n";
+      await rs485Serial.sendString(reply);
+      store.addLog({ kind: "tx", title: "RS485 OUT", message: reply.trim() });
+    } catch (error) {
+      pushError(error);
     }
-  });
+  };
 
+  rs485Serial.addEventListener("rx-invalid", (event) => replyToPing(event.detail.line || ""));
+  rs485Serial.addEventListener("rx", (event) => replyToPing(event.detail.line || ""));
   rs485Serial.addEventListener("error", (event) => pushError(event.detail.error));
 }
 
-async function runSelectedTest() {
-  const test = getTestById(store.getState().selectedTestId);
+function routeIncomingMessage(message) {
+  if (message.type === "boot") {
+    store.addLog({
+      kind: message.ready ? "ok" : "rx",
+      title: "Boot",
+      message: `${message.target ?? "target"} ${message.ready ? "ready" : "booted"}`
+    });
+    // Catches resets that print no panic dump, such as a watchdog or brownout.
+    runner.reportFault({ type: "reboot", detail: "firmware restarted mid-test" });
+    return;
+  }
+
+  if (message.type !== "event") {
+    return;
+  }
+
+  const test = getTestById(message.test);
   if (!test) {
     return;
   }
 
-  if (test.id === "rs485" && !rs485Serial.isConnected) {
-    store.addLog({ kind: "error", title: "RS485 Test", message: "Please click 'Connect RS485 Jig' before running this test." });
-    pushError(new Error("RS485 Jig adapter is not connected."));
+  store.addTestEvent(test.id, message);
+  refreshCriteria(test.id);
+}
+
+// Live criteria ticks while a test is in progress; the runner sets the final verdict.
+function refreshCriteria(testId) {
+  const test = getTestById(testId);
+  const current = store.getState().tests[testId];
+  if (!test || !current.response || (current.state !== "running" && current.state !== "waiting")) {
+    return;
+  }
+  store.updateTest(testId, {
+    criteria: evaluateCriteria(test, { response: current.response, events: current.events, payload: current.payload })
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Engineer manual controls (single test through the same runner)
+// ---------------------------------------------------------------------------
+
+async function runSelectedTest() {
+  const test = getTestById(store.getState().selectedTestId);
+  if (!test || runner.isRunning()) {
     return;
   }
 
-  const payload = readParameters(test);
-  const eventsBeforeRun = store.getState().tests[test.id].events.length;
-  
-  // Use a longer timeout for the Web UI promise to allow firmware to finish
-  const uiTimeoutMs = payload.timeout_ms ? Number(payload.timeout_ms) + 2000 : (test.timeoutMs || 3000);
-  
-  store.updateTest(test.id, {
-    state: "running",
-    response: null,
-    chainedResponses: [],
-    criteria: test.criteria.map(() => false),
-    lastDetail: "Sending command"
-  });
+  const inputs = {
+    ...readParameters(),
+    rs485Enabled: true,
+    unitId: readSequenceInputs().unitId
+  };
 
   try {
-    const response = await serial.sendCommand(test.command, payload, uiTimeoutMs);
-    const events = getEventsSince(test.id, eventsBeforeRun);
-    const chainedResponses = [];
-
-    if (test.blocked?.({ response, events })) {
-      updateTestResult(test, response, chainedResponses, events, "manual");
-      return;
-    }
-
-    for (const chained of test.chainedCommands ?? []) {
-      const chainedPayload = resolveChainedPayload(chained, payload);
-      const chainedResponse = await serial.sendCommand(chained.command, chainedPayload, test.timeoutMs);
-      chainedResponses.push(chainedResponse);
-    }
-
-    const finalEvents = getEventsSince(test.id, eventsBeforeRun);
-    const state = test.pass({ response, chainedResponses, events: finalEvents, payload }) ? "passed" : getPendingState(test, response, finalEvents);
-    updateTestResult(test, response, chainedResponses, finalEvents, state);
+    await runner.run([test], inputs);
   } catch (error) {
-    store.updateTest(test.id, {
-      state: "failed",
-      lastDetail: error.message,
-      criteria: test.criteria.map(() => false)
+    pushError(error);
+  }
+}
+
+async function stopSelectedTest() {
+  if (runner.isRunning()) {
+    runner.abort();
+    return;
+  }
+
+  const test = getTestById(store.getState().selectedTestId);
+  if (!test?.followUpCommand) {
+    return;
+  }
+
+  try {
+    const response = await serial.sendCommand(test.followUpCommand, {}, 3000);
+    store.addLog({
+      kind: response.ok ? "ok" : "error",
+      title: `Cleanup ${test.followUpCommand}`,
+      message: response.detail
     });
+  } catch (error) {
     pushError(error);
   }
 }
@@ -588,183 +1072,8 @@ async function sendRaw() {
   }
 }
 
-
-function routeIncomingMessage(message) {
-  if (message.type === "boot") {
-    store.addLog({
-      kind: message.ready ? "ok" : "rx",
-      title: "Boot",
-      message: `${message.target ?? "target"} ${message.ready ? "ready" : "booted"}`
-    });
-    return;
-  }
-
-  if (message.type !== "event") {
-    return;
-  }
-
-  const test = TESTS.find((item) => item.id === message.test || item.command.startsWith(message.test));
-  if (!test) {
-    return;
-  }
-
-  store.addTestEvent(test.id, message);
-  const current = store.getState().tests[test.id];
-  if (current.state === "running" && test.waitingStates?.includes(message.state)) {
-    store.updateTest(test.id, { state: "waiting", lastDetail: message.detail ?? message.state });
-  }
-
-  refreshCriteria(test.id);
-}
-
-async function runCleanupCommand() {
-  const test = getTestById(store.getState().selectedTestId);
-  if (!test?.followUpCommand) {
-    return;
-  }
-
-  try {
-    const response = await serial.sendCommand(test.followUpCommand, {}, 3000);
-    store.addLog({
-      kind: response.ok ? "ok" : "error",
-      title: `Cleanup ${test.followUpCommand}`,
-      message: response.detail
-    });
-    
-    const current = store.getState().tests[test.id];
-    if (test.manualDone && (current.state === "running" || current.state === "waiting")) {
-      store.updateTest(test.id, {
-        state: "failed",
-        lastDetail: "Interrupted by user"
-      });
-    }
-  } catch (error) {
-    pushError(error);
-  }
-}
-
-async function finishManualTest(test) {
-  try {
-    if (test.followUpCommand) {
-      const response = await serial.sendCommand(test.followUpCommand, {}, 3000);
-      store.addLog({
-        kind: response.ok ? "ok" : "error",
-        title: `Done ${test.followUpCommand}`,
-        message: response.detail
-      });
-    }
-    const current = store.getState().tests[test.id];
-    const isPass = test.pass({ 
-      response: current.response, 
-      chainedResponses: current.chainedResponses, 
-      events: current.events, 
-      payload: readParameters(test) 
-    });
-    const state = isPass ? "passed" : "failed";
-    
-    store.updateTest(test.id, {
-      state,
-      lastDetail: statusLabel(state),
-      criteria: calculateCriteria(test, current.response, current.chainedResponses, current.events)
-    });
-  } catch (error) {
-    pushError(error);
-  }
-}
-
-function updateTestResult(test, response, chainedResponses, events, state) {
-  store.updateTest(test.id, {
-    state,
-    response,
-    chainedResponses,
-    lastDetail: response.detail ?? statusLabel(state),
-    criteria: calculateCriteria(test, response, chainedResponses, events)
-  });
-}
-
-function refreshCriteria(testId) {
-  const state = store.getState();
-  const test = getTestById(testId);
-  const current = state.tests[testId];
-  if (!test || !current.response) {
-    return;
-  }
-  
-  if (test.manualDone && (current.state === "running" || current.state === "waiting")) {
-    store.updateTest(testId, {
-      criteria: calculateCriteria(test, current.response, current.chainedResponses, current.events)
-    });
-    return;
-  }
-
-  store.updateTest(testId, {
-    state: test.pass({ response: current.response, chainedResponses: current.chainedResponses, events: current.events, payload: readParameters(test) }) ? "passed" : current.state,
-    criteria: calculateCriteria(test, current.response, current.chainedResponses, current.events)
-  });
-}
-
-function calculateCriteria(test, response, chainedResponses, events) {
-  if (test.id === "ethernet") {
-    return [
-      Boolean(response?.ok),
-      events.some((event) => event.test === "ethernet" && event.state === "link_up"),
-      events.some((event) => event.test === "ethernet" && event.state === "got_ip"),
-      events.some((event) => event.test === "ethernet" && event.state === "link_down")
-    ];
-  }
-
-  if (test.id === "wifi") {
-    return [
-      Boolean(response?.ok),
-      events.some((event) => event.test === "wifi" && event.state === "connecting"),
-      events.some((event) => event.test === "wifi" && event.state === "got_ip")
-    ];
-  }
-
-  if (test.id === "ble") {
-    const echo = chainedResponses.find((item) => item.cmd === "ble_echo");
-    return [
-      Boolean(response?.ok),
-      Boolean(echo?.ok),
-      Boolean((echo?.detail ?? "").includes(readParameters(test).payload))
-    ];
-  }
-
-  return test.criteria.map(() => test.pass({ response, chainedResponses, events }));
-}
-
-function getPendingState(test, response, events) {
-  if (!response?.ok) {
-    return "failed";
-  }
-  if (test.waitingStates?.length) {
-    return "waiting";
-  }
-  return "failed";
-}
-
-function readParameters(test) {
-  const data = Object.fromEntries(new FormData(elements.parameterForm).entries());
-  const payload = {};
-
-  for (const parameter of test.parameters) {
-    const value = data[parameter.name] ?? parameter.value ?? "";
-    payload[parameter.name] = parameter.type === "number" ? Number(value) : value;
-  }
-
-  return payload;
-}
-
-function resolveChainedPayload(chained, parentPayload) {
-  const payload = {};
-  for (const parameter of chained.parameters ?? []) {
-    payload[parameter.name] = parentPayload[parameter.source];
-  }
-  return payload;
-}
-
-function getEventsSince(testId, startIndex) {
-  return store.getState().tests[testId].events.slice(startIndex);
+function readParameters() {
+  return Object.fromEntries(new FormData(elements.parameterForm).entries());
 }
 
 function pushError(error) {
@@ -777,13 +1086,4 @@ function formatFlashError(error) {
     return "Firmware is larger than the detected flash area. For Ferbos PCB, retry after refresh; this build now uses flash size keep to avoid bad browser-side flash-size detection.";
   }
   return message;
-}
-
-function statusLabel(state) {
-  return {
-    passed: "Passed",
-    failed: "Failed",
-    waiting: "Waiting for async event",
-    manual: "Needs firmware config check"
-  }[state] ?? state;
 }
