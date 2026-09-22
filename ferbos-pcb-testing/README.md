@@ -48,9 +48,17 @@ station and a climate station on the same PC do not inherit each other's setting
 
 | | Gateway | Climate Control |
 | --- | --- | --- |
-| Tests | jig, ping, info, c6, ethernet, wifi, rs485 | ping, info, c6, ethernet, wifi, gsm |
+| Tests | jig, ping, info, c6, ethernet, wifi, rs485 | ping, info, c6, **sht20, ld2412**, ethernet, wifi, gsm |
 | UART2 | RS485, tested with a jig adapter | SIM7080G modem, tested as a loopback |
-| Firmware bundled | yes | not yet |
+| Host port | UART bridge (UART0) | the S3's **native USB** (USB-Serial-JTAG) |
+| Firmware bundled | yes | yes |
+
+Sensors run before the network tests: they are instant and need no operator, so a
+board with a dead sensor fails in seconds rather than after two minutes of plugging
+and unplugging cables.
+
+The climate tester firmware puts its host link on USB-Serial-JTAG, because UART0 is
+the LD2412 on that board. Pick the S3's native USB port, not a UART bridge.
 
 ### Climate hardware
 
@@ -95,10 +103,10 @@ Firmware contract, mirroring `rs485_exchange` minus the DE/RE pin:
 Hold the modem in reset (GPIO 21, inverting: HIGH asserts) while looping back, so
 it cannot inject AT chatter into the echo.
 
-Climate Control is scaffolding at this point. Its tester firmware does not exist —
-the EOL tester hardcodes the gateway's S3<->C6 pins (42/40, where climate uses
-41/42) — so the flash buttons are disabled and the page says why. SHT20, mmWave and
-GSM tests are deliberately absent rather than present and always failing.
+Both boards are flashable. The climate tester firmware is the same project built with
+`-D EOL_BOARD=climate` (see the firmware repo's `ferbos_pcb_testing_eol_main/README.md`).
+The C6 image is shared: the C6 sits on its own GPIO 16/17 on both PCBs, so only the S3
+side differs.
 
 ### Wrong-board protection
 

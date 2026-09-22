@@ -200,6 +200,45 @@ export const rs485Test = {
   ]
 };
 
+// Reads temperature and humidity over I2C. The firmware decides in_range, so the host
+// does not duplicate the bounds: the thresholds belong next to the datasheet
+// conversions. What matters at EOL is that the part is fitted, ACKs at 0x40, passes
+// CRC and reads plausibly -- a dry joint on SDA or SCL shows up as a transmit error,
+// and a part that is present but dead returns a constant the range check rejects.
+export const sht20Test = {
+  id: "sht20",
+  label: "SHT20 Temp/Humidity",
+  summary: "Read the SHT20 over I2C and check the values are physically plausible.",
+  command: "sht20_read",
+  timeoutMs: 3000,
+  parameters: [],
+  criteria: [
+    { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "sht20 reading event is received", check: ({ events }) => hasEvent(events, "sht20", "reading") },
+    { label: "temperature and humidity are in range", check: ({ response }) => (response?.detail ?? "").includes("in_range=yes") }
+  ]
+};
+
+// The LD2412 streams REPORT frames continuously once powered, so catching one proves
+// the module is alive, on the right baud and wired to the right pins -- without asking
+// anyone to walk in front of the sensor, which a presence test would need and which is
+// far too slow and flaky for a line.
+export const ld2412Test = {
+  id: "ld2412",
+  label: "LD2412 mmWave",
+  summary: "Wait for one complete LD2412 REPORT frame on UART0.",
+  command: "ld2412_probe",
+  timeoutMs: 4000,
+  parameters: [
+    { name: "timeout_ms", label: "Firmware timeout ms", value: "2000", type: "number" }
+  ],
+  criteria: [
+    { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "ld2412 frame event is received", check: ({ events }) => hasEvent(events, "ld2412", "frame") },
+    { label: "a well-formed REPORT frame was read", check: ({ response }) => (response?.detail ?? "").includes("report frame ok") }
+  ]
+};
+
 // Climate wires UART2 to the SIM7080G instead of RS485. A jumper across the header's
 // TX and RX turns the modem connector into a loopback, which proves the S3's UART2
 // path and the board traces up to the header without needing a modem fitted or a
@@ -241,10 +280,15 @@ export const gsmLoopbackTest = {
  *
  * @param {{boardId: string, rs485?: boolean}} options
  */
-export function createTests({ boardId, rs485 = false, gsm = false }) {
+export function createTests({ boardId, rs485 = false, gsm = false, sensors = false }) {
   const tests = [];
   if (rs485) tests.push(jigTest);
-  tests.push(pingTest, createInfoTest(boardId), c6Test, ethernetTest, wifiTest);
+  tests.push(pingTest, createInfoTest(boardId), c6Test);
+  // Sensors run before the network tests: they are instant and need no operator, so a
+  // board with a dead sensor fails in seconds instead of after two minutes of plugging
+  // and unplugging cables.
+  if (sensors) tests.push(sht20Test, ld2412Test);
+  tests.push(ethernetTest, wifiTest);
   if (rs485) tests.push(rs485Test);
   if (gsm) tests.push(gsmLoopbackTest);
   return tests;

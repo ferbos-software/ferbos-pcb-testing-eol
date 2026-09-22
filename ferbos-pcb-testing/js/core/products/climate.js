@@ -17,15 +17,60 @@ import { createSequenceInputs, createTests } from "../testRegistry.js";
 // There is no RS485: UART2 drives the modem. The GSM connector is tested as a
 // loopback instead, which needs only a jumper rather than a jig adapter.
 //
-// SHT20 and LD2412 tests are still to come; they need firmware commands that do not
-// exist yet, so they are absent rather than present and always failing.
+// The climate tester firmware is built from the same project as the gateway one, with
+// -D EOL_BOARD=climate. Its host link is USB-Serial-JTAG rather than UART0, so the
+// operator picks the S3's native USB port here, not a UART bridge.
 export const climate = {
   id: "climate",
   label: "Climate Control",
-  summary: "Compact Climate PCB. SHT20 and mmWave tests arrive with the climate tester firmware.",
+  summary: "Compact Climate PCB with SHT20, LD2412 mmWave and a SIM7080G modem header.",
   boardId: "climate-control",
-  tests: createTests({ boardId: "climate-control", rs485: false, gsm: true }),
+  tests: createTests({ boardId: "climate-control", rs485: false, gsm: true, sensors: true }),
   inputs: createSequenceInputs({ rs485: false, gsm: true }),
-  firmware: null,
-  firmwareNote: "Climate tester and production firmware are not built yet. Flash the board with idf.py for now."
+  firmware: {
+    tester: {
+      label: "PCB Testing Firmware",
+      targets: {
+        s3: {
+          files: [
+            { path: "bootloader.bin", address: 0x0 },
+            { path: "partition-table.bin", address: 0x8000 },
+            { path: "ferbos-pcb-testing-eol-main.bin", address: 0x10000 },
+            { path: "ota_data_initial.bin", address: 0x410000 }
+          ]
+        },
+        // The C6 sits on its own GPIO 16/17 on both PCBs, so its firmware is the same
+        // binary the gateway uses.
+        c6: {
+          files: [
+            { path: "bootloader.bin", address: 0x0 },
+            { path: "partition-table.bin", address: 0x8000 },
+            { path: "ferbos-pcb-testing-eol-zigbee.bin", address: 0x10000 },
+            { path: "ota_data_initial.bin", address: 0x2ce000 }
+          ]
+        }
+      }
+    },
+    production: {
+      label: "Production Firmware",
+      targets: {
+        s3: {
+          files: [
+            { path: "bootloader.bin", address: 0x0 },
+            { path: "partition-table.bin", address: 0x8000 },
+            { path: "ota_data_initial.bin", address: 0x29000 },
+            { path: "ferbos-gateway-main.bin", address: 0x30000 }
+          ]
+        },
+        c6: {
+          files: [
+            { path: "bootloader.bin", address: 0x0 },
+            { path: "partition-table.bin", address: 0x8000 },
+            { path: "ferbos-zigbee-gateway.bin", address: 0x10000 },
+            { path: "ota_data_initial.bin", address: 0x2ce000 }
+          ]
+        }
+      }
+    }
+  }
 };
