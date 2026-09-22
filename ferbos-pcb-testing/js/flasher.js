@@ -29,10 +29,14 @@ const FIRMWARE_PROFILES = {
         ]
       },
       c6: {
+        // Same OTA layout as the C6 production firmware, so otadata must be reset too.
+        // Writing only ota_0 leaves otadata pointing at whichever slot production last
+        // booted: the flash succeeds, verifies, and the board keeps running the old app.
         files: [
           { path: "bootloader.bin", address: 0x0 },
           { path: "partition-table.bin", address: 0x8000 },
-          { path: "ferbos-pcb-testing-eol-zigbee.bin", address: 0x10000 }
+          { path: "ferbos-pcb-testing-eol-zigbee.bin", address: 0x10000 },
+          { path: "ota_data_initial.bin", address: 0x2ce000 }
         ]
       }
     }

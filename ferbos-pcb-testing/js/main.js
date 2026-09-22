@@ -109,7 +109,7 @@ const FLASH_PROFILE_LABELS = {
 };
 
 const FLASH_FILE_COUNTS = {
-  tester: { s3: 4, c6: 3 },
+  tester: { s3: 4, c6: 4 },
   production: { s3: 4, c6: 4 }
 };
 
