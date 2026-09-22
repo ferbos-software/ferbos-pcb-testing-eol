@@ -356,8 +356,8 @@ export function createSequenceRunner({ serial, store, log, hostChecks = {} }) {
           markSkipped(test, "S3 is not responding");
           continue;
         }
-        if (test.requiresJig && !inputs.rs485Enabled) {
-          markSkipped(test, "RS485 jig disabled on this station");
+        if (test.requiresInput && !inputs[test.requiresInput]) {
+          markSkipped(test, test.skipNote ?? `${test.requiresInput} is off for this station`);
           continue;
         }
         const unmetDependency = (test.dependsOn ?? [])

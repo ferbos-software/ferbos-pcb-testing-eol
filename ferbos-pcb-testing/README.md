@@ -48,9 +48,52 @@ station and a climate station on the same PC do not inherit each other's setting
 
 | | Gateway | Climate Control |
 | --- | --- | --- |
-| Tests | jig, ping, info, c6, ethernet, wifi, rs485 | ping, info, c6, ethernet, wifi |
-| RS485 | yes, with jig | no — UART2 drives the SIM7080G modem |
+| Tests | jig, ping, info, c6, ethernet, wifi, rs485 | ping, info, c6, ethernet, wifi, gsm |
+| UART2 | RS485, tested with a jig adapter | SIM7080G modem, tested as a loopback |
 | Firmware bundled | yes | not yet |
+
+### Climate hardware
+
+From the production firmware
+(`ferbos-gateway-main/components/climate_control/CMakeLists.txt`):
+
+| Peripheral | Bus | Pins |
+| --- | --- | --- |
+| SHT20 | I2C0 @100 kHz, addr `0x40` | SDA 16, SCL 15 |
+| LD2412 mmWave | UART0 @115200 | RX 4, TX 5 |
+| SIM7080G GSM | UART2 @115200 | TX 17, RX 18, RESET 21 |
+| S3↔C6 | UART1 | 41/42 (gateway: 42/40) |
+| IR LED | — | GPIO 7 |
+
+UART0 carries the mmWave sensor because this board's console runs over
+USB-Serial-JTAG. The EOL tester firmware currently uses UART0 as its host link,
+so a climate build has to talk to the host over USB-Serial-JTAG instead — on this
+board those pins belong to the LD2412.
+
+mmWave and GSM were both on UART2 once and it caused an Interrupt WDT panic in
+`Ld2412::rxLoop()`: ESP-IDF keys the UART driver by port number, not by GPIO, so
+two `uart_driver_install()` calls on one port fight over a single hardware
+instance. Keep them on different ports.
+
+### GSM loopback
+
+A jumper across the GSM header's TX and RX turns the modem connector into a
+loopback, so the test needs no modem fitted and no network in range. The firmware
+writes a payload on UART2 and must read the same bytes back; an exact echo is the
+pass criterion, since anything else means a broken trace, a swapped pair, or the
+wrong pins. Stations without the jumper untick the box and the test is skipped
+rather than failed.
+
+Firmware contract, mirroring `rs485_exchange` minus the DE/RE pin:
+
+```json
+{"id":"8","cmd":"gsm_loopback","payload":"EOL_GSM_LOOPBACK","timeout_ms":1000}
+{"type":"event","test":"gsm","state":"rx","detail":"tx=EOL_GSM_LOOPBACK rx=EOL_GSM_LOOPBACK"}
+{"type":"response","id":"8","cmd":"gsm_loopback","ok":true,"detail":"tx=EOL_GSM_LOOPBACK rx=EOL_GSM_LOOPBACK"}
+```
+
+Hold the modem in reset (GPIO 21, inverting: HIGH asserts) while looping back, so
+it cannot inject AT chatter into the echo.
 
 Climate Control is scaffolding at this point. Its tester firmware does not exist —
 the EOL tester hardcodes the gateway's S3<->C6 pins (42/40, where climate uses
@@ -271,7 +314,9 @@ Edit `js/core/testRegistry.js`. Each test declares:
 - `followUpCommand`: always sent after the test to return the board to idle.
 - `criteria`: `{ label, check }` pairs; all must be met to pass.
 - `gate`: skip the remaining tests when this one fails.
-- `requiresJig`: skipped when the RS485 jig checkbox is off.
+- `requiresInput`: skipped when that operator input is off — an accessory this
+  station does not have fitted. Pair with `optional` (skipping it still allows an
+  overall PASS) and `skipNote` (what the report says).
 - `hostCheck`: run on the PC instead of sending a command (handler passed to
   the runner from `main.js`), e.g. the jig port check.
 - `dependsOn`: skipped unless the listed tests passed earlier in the same run.

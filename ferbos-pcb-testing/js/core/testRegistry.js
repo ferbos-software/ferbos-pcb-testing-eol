@@ -1,6 +1,6 @@
 // Inputs the operator fills once before starting the automatic sequence.
 // Values are matched by name against test parameters (e.g. ssid/password).
-export function createSequenceInputs({ rs485 = false } = {}) {
+export function createSequenceInputs({ rs485 = false, gsm = false } = {}) {
   const inputs = [
     { name: "unitId", label: "PCB Serial / Unit ID", value: "", placeholder: "optional, tags the exported log" },
     { name: "ssid", label: "WiFi SSID", value: "FactoryAP" },
@@ -8,6 +8,9 @@ export function createSequenceInputs({ rs485 = false } = {}) {
   ];
   if (rs485) {
     inputs.push({ name: "rs485Enabled", label: "RS485 jig connected on this station", value: true, type: "checkbox" });
+  }
+  if (gsm) {
+    inputs.push({ name: "gsmLoopback", label: "GSM header TX-RX jumper fitted", value: true, type: "checkbox" });
   }
   return inputs;
 }
@@ -49,7 +52,9 @@ export function explainWifiDisconnect(detail) {
 // - followUpCommand: always sent after the phases finish (pass, fail, or abort) to put the board back in idle.
 // - criteria: individually checked; the test passes only when every criterion is met.
 // - gate: when this test fails, the remaining tests are skipped (board is not responding at all).
-// - requiresJig: skipped when the operator disables the RS485 jig for this station.
+// - requiresInput: skipped when that operator input is off, e.g. an accessory this
+//   station does not have fitted. Pair it with skipNote to say so in the report.
+// - optional: skipping it does not stop the run reading PASS overall.
 // - hostCheck: run on the PC instead of sending a command to S3 (the runner is given a matching handler).
 // - dependsOn: skipped unless every listed test passed earlier in the same run.
 export const jigTest = {
@@ -57,7 +62,9 @@ export const jigTest = {
   label: "RS485 Jig Check",
   summary: "Check that the USB-RS485 jig adapter on this station is connected before testing.",
   hostCheck: "jig",
-  requiresJig: true,
+  requiresInput: "rs485Enabled",
+  optional: true,
+  skipNote: "RS485 jig disabled on this station",
   parameters: [],
   criteria: [
     { label: "Jig serial port is open", check: ({ response }) => Boolean(response?.ok) }
@@ -172,7 +179,9 @@ export const rs485Test = {
   summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",
   command: "rs485_exchange",
   timeoutMs: 2500,
-  requiresJig: true,
+  requiresInput: "rs485Enabled",
+  optional: true,
+  skipNote: "RS485 jig disabled on this station",
   dependsOn: ["jig"],
   parameters: [
     { name: "payload", label: "TX payload", value: "EOL_RS485_PING" },
@@ -191,6 +200,37 @@ export const rs485Test = {
   ]
 };
 
+// Climate wires UART2 to the SIM7080G instead of RS485. A jumper across the header's
+// TX and RX turns the modem connector into a loopback, which proves the S3's UART2
+// path and the board traces up to the header without needing a modem fitted or a
+// network to be in range. An exact echo is the whole test: anything else means a
+// broken trace, a swapped pair, or the wrong pins.
+export const gsmLoopbackTest = {
+  id: "gsm",
+  label: "GSM UART Loopback",
+  summary: "With the GSM header TX-RX jumper fitted, send a payload on UART2 and read it back.",
+  command: "gsm_loopback",
+  timeoutMs: 2500,
+  requiresInput: "gsmLoopback",
+  optional: true,
+  skipNote: "GSM loopback jumper not fitted on this station",
+  parameters: [
+    { name: "payload", label: "TX payload", value: "EOL_GSM_LOOPBACK" },
+    { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
+  ],
+  criteria: [
+    { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "gsm rx event is received", check: ({ events }) => hasEvent(events, "gsm", "rx") },
+    {
+      label: "received payload matches what was sent",
+      check: ({ response, payload }) => {
+        const echoed = /rx=(\S*)/.exec(response?.detail ?? "")?.[1];
+        return Boolean(echoed) && echoed === payload?.payload;
+      }
+    }
+  ]
+};
+
 /**
  * The ordered test list for one product.
  *
@@ -201,11 +241,12 @@ export const rs485Test = {
  *
  * @param {{boardId: string, rs485?: boolean}} options
  */
-export function createTests({ boardId, rs485 = false }) {
+export function createTests({ boardId, rs485 = false, gsm = false }) {
   const tests = [];
   if (rs485) tests.push(jigTest);
   tests.push(pingTest, createInfoTest(boardId), c6Test, ethernetTest, wifiTest);
   if (rs485) tests.push(rs485Test);
+  if (gsm) tests.push(gsmLoopbackTest);
   return tests;
 }
 

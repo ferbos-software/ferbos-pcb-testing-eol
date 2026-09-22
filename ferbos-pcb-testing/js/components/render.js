@@ -138,7 +138,7 @@ function renderBanner(elements, state) {
       kicker = `Aborted${unit}`;
       title = "Sequence aborted";
       text = "Click Start Test Sequence to run again.";
-    } else if (failed.length === 0 && skipped.every(({ test }) => test.requiresJig)) {
+    } else if (failed.length === 0 && skipped.every(({ test }) => test.optional)) {
       status = "pass";
       kicker = `Finished${unit}`;
       title = "PASS";
