@@ -301,6 +301,20 @@ function readSequenceInputs() {
 // need no picker. Port identity is remembered by USB vendor/product id.
 // ---------------------------------------------------------------------------
 
+// The browser's picker cannot be labelled by the page, so the panel behind it has to
+// name the port being asked for -- in the product's own terms, since a climate station
+// is choosing the board's native USB while a gateway station is choosing a bridge.
+function describePortPick(key) {
+  const ports = ACTIVE_PRODUCT.ports;
+  const index = ports.findIndex((port) => port.key === key);
+  const port = ports[index];
+  if (!port) {
+    return "Choose the serial port";
+  }
+  const position = ports.length > 1 ? ` (port ${index + 1} of ${ports.length})` : "";
+  return `Choose the ${port.label} port${position} — ${port.note}`;
+}
+
 // Shows which port to pick and lets the browser paint before the modal picker steals focus.
 async function announcePortPick(hint) {
   store.setSequence({ hint });
@@ -317,7 +331,7 @@ async function connectMainSerial({ allowPicker }) {
     throw new Error("S3 serial port is not connected");
   }
   if (!port) {
-    await announcePortPick("Choose the ESP32-S3 GATEWAY port (port 1 of 2)");
+    await announcePortPick(describePortPick("main"));
   }
 
   await serial.connect({ baudRate: MAIN_BAUD, port });
@@ -383,7 +397,7 @@ async function connectJigSerial({ allowPicker }) {
     throw new Error("RS485 jig port is not connected");
   }
   if (!port) {
-    await announcePortPick("Choose the USB-RS485 JIG adapter port (port 2 of 2) — not the gateway");
+    await announcePortPick(describePortPick("jig"));
   }
   await rs485Serial.connect({ baudRate: JIG_BAUD, port });
   rememberPort(STORAGE_KEYS.jigPort, rs485Serial.port);

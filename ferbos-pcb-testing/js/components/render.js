@@ -1,5 +1,5 @@
 import { deriveIdentity } from "../core/identity.js";
-import { TESTS, getTestById } from "../core/productRegistry.js";
+import { ACTIVE_PRODUCT, TESTS, getTestById } from "../core/productRegistry.js";
 
 const statusLabels = {
   idle: "Ready",
@@ -26,8 +26,10 @@ export function createRenderer(elements, handlers) {
 
     elements.connectButton.textContent = state.connected ? "Disconnect Serial" : "Connect Serial (115200)";
     elements.connectButton.disabled = running;
+    const hasJig = ACTIVE_PRODUCT.ports.some((port) => port.key === "jig");
+    elements.rs485ConnectButton.classList.toggle("d-none", !hasJig);
     elements.rs485ConnectButton.textContent = state.jigConnected ? "Disconnect RS485 Jig" : "Connect RS485 Jig (9600)";
-    elements.rs485ConnectButton.disabled = running;
+    elements.rs485ConnectButton.disabled = running || !hasJig;
     elements.runButton.disabled = running || !state.connected || !test;
     elements.cleanupButton.textContent = running ? "Stop Sequence" : "Stop Mode";
     elements.cleanupButton.disabled = !running && !(state.connected && test?.followUpCommand);
@@ -66,24 +68,20 @@ function renderIdentity(elements, state) {
   }
 }
 
-const PORT_GUIDE = [
-  { key: "main", label: "ESP32-S3 gateway", note: "the board under test" },
-  { key: "jig", label: "USB-RS485 jig adapter", note: "only when the jig is enabled" }
-];
-
 // The browser picker cannot be labelled by the page, so the operator needs to know
 // here which port is asked for, and which are already remembered.
 function renderPortGuide(elements, state) {
-  const anySaved = PORT_GUIDE.some(({ key }) => state.portMemory[key]);
+  const ports = ACTIVE_PRODUCT.ports;
+  const anySaved = ports.some(({ key }) => state.portMemory[key]);
 
   elements.portGuide.replaceChildren(
-    ...PORT_GUIDE.map(({ key, label, note }, index) => {
+    ...ports.map(({ key, label, note }, index) => {
       const item = document.createElement("li");
       const name = document.createElement("strong");
       const detail = document.createElement("span");
       const saved = state.portMemory[key];
 
-      name.textContent = `Port ${index + 1} — ${label}`;
+      name.textContent = ports.length > 1 ? `Port ${index + 1} — ${label}` : label;
       detail.className = "port-guide-note";
       detail.textContent = saved ? ` remembered (${saved})` : ` ${note}, will be asked for`;
       item.dataset.saved = saved ? "yes" : "no";
@@ -100,7 +98,7 @@ function describeConnections(state) {
   if (!state.connected) {
     return "Disconnected";
   }
-  return state.jigConnected ? "S3 connected · RS485 jig connected" : "S3 connected";
+  return state.jigConnected ? "Board connected · RS485 jig connected" : "Board connected";
 }
 
 function renderProgress(node, state) {

@@ -8,6 +8,10 @@ export const gateway = {
   boardId: "gateway",
   tests: createTests({ boardId: "gateway", rs485: true }),
   inputs: createSequenceInputs({ rs485: true }),
+  ports: [
+    { key: "main", label: "ESP32-S3 gateway", note: "the board under test, on its UART bridge" },
+    { key: "jig", label: "USB-RS485 jig adapter", note: "only when the jig is enabled" }
+  ],
   firmware: {
     tester: {
       label: "PCB Testing Firmware",

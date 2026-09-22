@@ -27,6 +27,11 @@ export const climate = {
   boardId: "climate-control",
   tests: createTests({ boardId: "climate-control", rs485: false, gsm: true, sensors: true }),
   inputs: createSequenceInputs({ rs485: false, gsm: true }),
+  // One port only: no RS485 jig on this board, and the host link is the S3's native
+  // USB rather than a bridge, so the picker shows a different kind of device.
+  ports: [
+    { key: "main", label: "ESP32-S3 climate board", note: "the board's native USB (USB-Serial-JTAG), not a UART bridge" }
+  ],
   firmware: {
     tester: {
       label: "PCB Testing Firmware",
