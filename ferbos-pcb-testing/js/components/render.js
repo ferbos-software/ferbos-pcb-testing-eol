@@ -1,5 +1,5 @@
 import { deriveIdentity } from "../core/identity.js";
-import { TESTS, getTestById } from "../core/testRegistry.js";
+import { TESTS, getTestById } from "../core/productRegistry.js";
 
 const statusLabels = {
   idle: "Ready",

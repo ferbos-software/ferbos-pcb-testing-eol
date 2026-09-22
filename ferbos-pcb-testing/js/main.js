@@ -5,10 +5,15 @@ import { redactLine, redactPayload } from "./core/redact.js";
 import { classifyPlainLine, detectFirmwareFault } from "./core/serialLines.js";
 import { createSequenceRunner } from "./core/sequenceRunner.js";
 import { createStore } from "./core/state.js";
-import { SEQUENCE_INPUTS, TESTS, buildPayload, evaluateCriteria, getTestById } from "./core/testRegistry.js";
-import { flashFirmware, readDeviceMac } from "./flasher.js";
+import { ACTIVE_PRODUCT, PRODUCTS, SEQUENCE_INPUTS, TESTS, getTestById } from "./core/productRegistry.js";
+import { buildPayload, evaluateCriteria } from "./core/testRegistry.js";
+import { flashFirmware, getFirmwareLabel, getFirmwareProfile, readDeviceMac } from "./flasher.js";
 
 const elements = {
+  productLabel: document.querySelector("#productLabel"),
+  productSelect: document.querySelector("#productSelect"),
+  productSummary: document.querySelector("#productSummary"),
+  productWarning: document.querySelector("#productWarning"),
   identityCard: document.querySelector("#identityCard"),
   identityMac: document.querySelector("#identityMac"),
   identityGatewayId: document.querySelector("#identityGatewayId"),
@@ -70,10 +75,12 @@ const MAIN_BAUD = 115200;
 const BOOT_TIMEOUT_MS = 4000;
 const PORT_PROBE_TIMEOUT_MS = 2500;
 const JIG_BAUD = 9600;
+// Namespaced per product: a gateway station and a climate station on the same PC
+// must not inherit each other's ports or SSID.
 const STORAGE_KEYS = {
-  inputs: "ferbos.eol.sequenceInputs",
-  mainPort: "ferbos.eol.port.main",
-  jigPort: "ferbos.eol.port.jig"
+  inputs: `ferbos.eol.${ACTIVE_PRODUCT.id}.sequenceInputs`,
+  mainPort: `ferbos.eol.${ACTIVE_PRODUCT.id}.port.main`,
+  jigPort: `ferbos.eol.${ACTIVE_PRODUCT.id}.port.jig`
 };
 
 const serial = new SerialClient();
@@ -104,21 +111,59 @@ const flashActionButtons = [
 ];
 
 const FLASH_PROFILE_LABELS = {
-  tester: "PCB Testing Firmware",
-  production: "Production Firmware"
+  tester: getFirmwareLabel("tester"),
+  production: getFirmwareLabel("production")
 };
 
-const FLASH_FILE_COUNTS = {
-  tester: { s3: 4, c6: 4 },
-  production: { s3: 4, c6: 4 }
-};
+// Derived from the profiles themselves, so it can never drift from what is written.
+function flashFileCount(profile, target) {
+  return getFirmwareProfile(profile)?.targets?.[target]?.files?.length ?? 1;
+}
 
+renderProductBar();
 renderSequenceForm(elements.sequenceForm, SEQUENCE_INPUTS, loadJson(STORAGE_KEYS.inputs) ?? {});
 refreshPortMemory();
 wireUi();
 wireSerial();
 wireRs485();
 render(store.getState());
+
+// One product per page, chosen by ?product= so each station can bookmark its own.
+// Switching reloads rather than re-rendering: the test list, firmware profiles and
+// stored ports all belong to the product, and a reload is the honest way to swap them.
+function renderProductBar() {
+  elements.productLabel.textContent = ACTIVE_PRODUCT.label;
+  elements.productSummary.textContent = ACTIVE_PRODUCT.summary ?? "";
+
+  elements.productSelect.replaceChildren(
+    ...PRODUCTS.map((product) => {
+      const option = document.createElement("option");
+      option.value = product.id;
+      option.textContent = product.label;
+      option.selected = product.id === ACTIVE_PRODUCT.id;
+      return option;
+    })
+  );
+  elements.productSelect.addEventListener("change", (event) => {
+    const url = new URL(location.href);
+    url.searchParams.set("product", event.target.value);
+    location.assign(url);
+  });
+
+  const unavailable = !ACTIVE_PRODUCT.firmware;
+  elements.productWarning.classList.toggle("d-none", !unavailable);
+  if (unavailable) {
+    elements.productWarning.textContent = ACTIVE_PRODUCT.firmwareNote
+      ?? `No firmware is bundled for ${ACTIVE_PRODUCT.label} yet.`;
+  }
+  for (const button of flashActionButtons) {
+    button.disabled = unavailable;
+    if (unavailable) {
+      button.title = ACTIVE_PRODUCT.firmwareNote ?? "No firmware bundled for this board";
+    }
+  }
+  document.title = `${ACTIVE_PRODUCT.label} - Ferbos EOL PCB Tester`;
+}
 
 function wireUi() {
   elements.startSequenceButton.addEventListener("click", () => startSequence());
@@ -447,6 +492,7 @@ function exportLog() {
   const unitId = state.sequence.unitId || readSequenceInputs().unitId || "";
   const s3Identity = deriveIdentity(state.identity.s3?.macAddress);
   const report = {
+    product: { id: ACTIVE_PRODUCT.id, label: ACTIVE_PRODUCT.label, boardId: ACTIVE_PRODUCT.boardId },
     unitId,
     exportedAt: new Date().toISOString(),
     identity: {
@@ -798,7 +844,7 @@ function completeFlashUi(target, manualResetNeeded, appDescriptor) {
     // cached binary was written and the board is running something else.
     store.addLog({ kind: "ok", title: "Verify", message: `Boot banner should report: ${appDescriptor.built}, IDF ${appDescriptor.idf}` });
   }
-  updateFlashProgress((FLASH_FILE_COUNTS[profile]?.[target] ?? 1) - 1, 100);
+  updateFlashProgress(flashFileCount(profile, target) - 1, 100);
   elements.flashAssistCloseButton.textContent = "OK";
   const identity = deriveIdentity(store.getState().identity[target]?.macAddress);
   updateFlashAssist({
@@ -841,8 +887,9 @@ function endFlashControls() {
 }
 
 function setFlashActionButtonsDisabled(disabled) {
+  const unavailable = !ACTIVE_PRODUCT.firmware;
   for (const button of flashActionButtons) {
-    button.disabled = disabled;
+    button.disabled = disabled || unavailable;
   }
 }
 
@@ -861,7 +908,7 @@ function cancelPendingManualFlash() {
 
 function updateFlashProgress(fileIndex, percentage) {
   const { profile = "tester", target = "s3" } = flashSession ?? {};
-  const fileCount = FLASH_FILE_COUNTS[profile]?.[target] ?? 3;
+  const fileCount = flashFileCount(profile, target);
   elements.flashPercentage.innerText = `${percentage}% (File ${fileIndex + 1}/${fileCount})`;
   elements.flashProgressBar.style.width = `${percentage}%`;
 }

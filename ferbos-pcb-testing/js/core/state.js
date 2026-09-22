@@ -1,4 +1,4 @@
-import { TESTS } from "./testRegistry.js";
+import { TESTS } from "./productRegistry.js";
 
 function createTestStatus(test) {
   return {

@@ -1,4 +1,5 @@
 import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.6.1/bundle.js";
+import { ACTIVE_PRODUCT } from "./core/productRegistry.js";
 
 export class ManualBootRequiredError extends Error {
   constructor(cause) {
@@ -13,56 +14,6 @@ const EXPECTED_CHIP_NAMES = {
   c6: "ESP32-C6"
 };
 
-const FIRMWARE_PROFILES = {
-  tester: {
-    label: "PCB Testing Firmware",
-    targets: {
-      s3: {
-        // The S3 tester moved from a factory partition table to ota_0/ota_1, so it
-        // needs ota_data_initial.bin as well; without it the bootloader reads stale
-        // bytes left at 0x410000 by the previous layout.
-        files: [
-          { path: "bootloader.bin", address: 0x0 },
-          { path: "partition-table.bin", address: 0x8000 },
-          { path: "ferbos-pcb-testing-eol-main.bin", address: 0x10000 },
-          { path: "ota_data_initial.bin", address: 0x410000 }
-        ]
-      },
-      c6: {
-        // Same OTA layout as the C6 production firmware, so otadata must be reset too.
-        // Writing only ota_0 leaves otadata pointing at whichever slot production last
-        // booted: the flash succeeds, verifies, and the board keeps running the old app.
-        files: [
-          { path: "bootloader.bin", address: 0x0 },
-          { path: "partition-table.bin", address: 0x8000 },
-          { path: "ferbos-pcb-testing-eol-zigbee.bin", address: 0x10000 },
-          { path: "ota_data_initial.bin", address: 0x2ce000 }
-        ]
-      }
-    }
-  },
-  production: {
-    label: "Production Firmware",
-    targets: {
-      s3: {
-        files: [
-          { path: "bootloader.bin", address: 0x0 },
-          { path: "partition-table.bin", address: 0x8000 },
-          { path: "ota_data_initial.bin", address: 0x29000 },
-          { path: "ferbos-gateway-main.bin", address: 0x30000 }
-        ]
-      },
-      c6: {
-        files: [
-          { path: "bootloader.bin", address: 0x0 },
-          { path: "partition-table.bin", address: 0x8000 },
-          { path: "ferbos-zigbee-gateway.bin", address: 0x10000 },
-          { path: "ota_data_initial.bin", address: 0x2ce000 }
-        ]
-      }
-    }
-  }
-};
 
 function writeLog(onLog, data, trailingNewline = false) {
   const message = trailingNewline ? `${data}\n` : data;
@@ -116,18 +67,29 @@ export function readAppDescriptor(data) {
   };
 }
 
+export function getFirmwareProfile(profile) {
+  return ACTIVE_PRODUCT.firmware?.[profile] ?? null;
+}
+
+export function getFirmwareLabel(profile) {
+  return getFirmwareProfile(profile)?.label ?? "Firmware";
+}
+
 async function loadFirmwareFiles(profile, target) {
-  const firmwareProfile = FIRMWARE_PROFILES[profile];
+  if (!ACTIVE_PRODUCT.firmware) {
+    throw new Error(ACTIVE_PRODUCT.firmwareNote ?? `No firmware is bundled for ${ACTIVE_PRODUCT.label}`);
+  }
+  const firmwareProfile = getFirmwareProfile(profile);
   const targetConfig = firmwareProfile?.targets[target];
   if (!targetConfig) {
-    throw new Error(`Firmware ${profile}/${target} belum tersedia`);
+    throw new Error(`Firmware ${ACTIVE_PRODUCT.id}/${profile}/${target} belum tersedia`);
   }
 
   return Promise.all(
     targetConfig.files.map(async (file) => {
       // no-store: a cached .bin flashes and verifies successfully, so a stale one is
       // invisible until the board boots the wrong build.
-      const response = await fetch(`./firmware/${profile}/${target}/${file.path}`, { cache: "no-store" });
+      const response = await fetch(`./firmware/${ACTIVE_PRODUCT.id}/${profile}/${target}/${file.path}`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`${file.path} not found for ${firmwareProfile.label} ${target.toUpperCase()}`);
       }

@@ -495,6 +495,46 @@ h3 {
   padding: 10px 12px;
 }
 
+.product-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.product-chip {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.product-bar strong {
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.product-select {
+  width: auto;
+  border-radius: 999px;
+}
+
+.product-warning {
+  margin: 8px auto 0;
+  max-width: 640px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .identity-card {
   display: flex;
   flex-wrap: wrap;

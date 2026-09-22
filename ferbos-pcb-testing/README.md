@@ -28,21 +28,70 @@ http://localhost:8080/ferbos-pcb-testing/
 Use Chrome or Edge on desktop because the Web Serial API requires
 `navigator.serial` support and the page must be opened from `localhost` or HTTPS.
 
+## Boards
+
+One deployment serves every board. The station picks its product from the URL:
+
+```text
+http://localhost:8080/ferbos-pcb-testing/                    Gateway (default)
+http://localhost:8080/ferbos-pcb-testing/?product=climate    Climate Control
+```
+
+Each station bookmarks its own URL, so the board under test is part of the address
+rather than a setting someone can leave wrong. An unknown or missing `product`
+falls back to the gateway, so existing bookmarks keep working. The board name is
+shown in the header, goes into the exported report, and the selector there switches
+product by reloading with the new URL.
+
+Remembered ports and operator inputs are namespaced per product, so a gateway
+station and a climate station on the same PC do not inherit each other's settings.
+
+| | Gateway | Climate Control |
+| --- | --- | --- |
+| Tests | jig, ping, info, c6, ethernet, wifi, rs485 | ping, info, c6, ethernet, wifi |
+| RS485 | yes, with jig | no — UART2 drives the SIM7080G modem |
+| Firmware bundled | yes | not yet |
+
+Climate Control is scaffolding at this point. Its tester firmware does not exist —
+the EOL tester hardcodes the gateway's S3<->C6 pins (42/40, where climate uses
+41/42) — so the flash buttons are disabled and the page says why. SHT20, mmWave and
+GSM tests are deliberately absent rather than present and always failing.
+
+### Wrong-board protection
+
+`info` carries a board-identity criterion: if the firmware reports `board=<id>` and
+it does not match the product, the test fails and names the mismatch. Firmware that
+does not report a board still passes, so this ships safely ahead of the firmware
+side. This is the only check that can catch a board flashed with another product's
+firmware — no UI can.
+
+### Adding a product
+
+Add a module under `js/core/products/` exporting `{ id, label, summary, boardId,
+tests, inputs, firmware }`, and register it in `js/core/productRegistry.js`. Compose
+`tests` with `createTests({ boardId, rs485 })` and `inputs` with
+`createSequenceInputs({ rs485 })` from `js/core/testRegistry.js`. Put binaries under
+`firmware/<product>/<profile>/<target>/`. A product with no firmware yet sets
+`firmware: null` and explains itself in `firmwareNote`.
+
 ## Structure
 
 - `index.html`: main layout.
 - `styles.css`: all UI styling.
 - `js/main.js`: UI wiring, port handling, flash flow, and event routing.
 - `js/core/serialClient.js`: Web Serial connect/read/write JSON line.
-- `js/core/testRegistry.js`: operator inputs, test list, phases, and pass criteria.
+- `js/core/testRegistry.js`: shared test definitions, phases, pass criteria, and the
+  factories products compose them with.
+- `js/core/productRegistry.js`: the product list and the one resolved from `?product=`.
+- `js/core/products/`: one module per board.
 - `js/core/sequenceRunner.js`: runs the tests back to back without operator clicks.
 - `js/core/identity.js`: derives the gateway id, MQTT topic, and BLE name from the MAC.
 - `js/core/redact.js`: masks the WiFi password in the monitor and the exported report.
 - `js/core/serialLines.js`: classifies non-JSON serial output and detects firmware crashes.
 - `js/core/state.js`: small state store for test status, sequence status, and logs.
 - `js/components/render.js`: renders the operator banner, test list, detail view, and serial monitor.
-- `firmware/tester`: ESP32-S3 and ESP32-C6 firmware used only for PCB QC tests.
-- `firmware/production`: final ESP32-S3 and ESP32-C6 firmware flashed after QC passes.
+- `firmware/<product>/tester`: ESP32-S3 and ESP32-C6 firmware used only for PCB QC tests.
+- `firmware/<product>/production`: final firmware flashed after QC passes.
 
 ## QC Flow
 

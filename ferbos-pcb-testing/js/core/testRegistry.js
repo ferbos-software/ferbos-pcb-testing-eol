@@ -1,11 +1,16 @@
 // Inputs the operator fills once before starting the automatic sequence.
 // Values are matched by name against test parameters (e.g. ssid/password).
-export const SEQUENCE_INPUTS = [
-  { name: "unitId", label: "PCB Serial / Unit ID", value: "", placeholder: "optional, tags the exported log" },
-  { name: "ssid", label: "WiFi SSID", value: "FactoryAP" },
-  { name: "password", label: "WiFi Password", value: "", type: "password" },
-  { name: "rs485Enabled", label: "RS485 jig connected on this station", value: true, type: "checkbox" }
-];
+export function createSequenceInputs({ rs485 = false } = {}) {
+  const inputs = [
+    { name: "unitId", label: "PCB Serial / Unit ID", value: "", placeholder: "optional, tags the exported log" },
+    { name: "ssid", label: "WiFi SSID", value: "FactoryAP" },
+    { name: "password", label: "WiFi Password", value: "", type: "password" }
+  ];
+  if (rs485) {
+    inputs.push({ name: "rs485Enabled", label: "RS485 jig connected on this station", value: true, type: "checkbox" });
+  }
+  return inputs;
+}
 
 const hasEvent = (events, test, state) => events.some((event) => event.test === test && event.state === state);
 
@@ -47,143 +52,186 @@ export function explainWifiDisconnect(detail) {
 // - requiresJig: skipped when the operator disables the RS485 jig for this station.
 // - hostCheck: run on the PC instead of sending a command to S3 (the runner is given a matching handler).
 // - dependsOn: skipped unless every listed test passed earlier in the same run.
-export const TESTS = [
-  {
-    id: "jig",
-    label: "RS485 Jig Check",
-    summary: "Check that the USB-RS485 jig adapter on this station is connected before testing.",
-    hostCheck: "jig",
-    requiresJig: true,
-    parameters: [],
-    criteria: [
-      { label: "Jig serial port is open", check: ({ response }) => Boolean(response?.ok) }
-    ]
-  },
-  {
-    id: "ping",
-    label: "S3 Firmware Alive",
-    summary: "Check S3 firmware, serial RX/TX, and command parser.",
-    command: "ping",
-    timeoutMs: 3000,
-    retries: 2,
-    gate: true,
-    parameters: [],
-    criteria: [
-      { label: "A response message is received", check: ({ response }) => Boolean(response) },
-      { label: "id and cmd match the request", check: ({ response }) => response?.cmd === "ping" },
-      { label: "ok is true", check: ({ response }) => Boolean(response?.ok) }
-    ]
-  },
-  {
-    id: "info",
-    label: "S3 Runtime Info",
-    summary: "Read chip_model, core count, and free_heap for initial identification.",
-    command: "info",
-    timeoutMs: 3000,
-    parameters: [],
-    criteria: [
-      { label: "Response ok is true", check: ({ response }) => Boolean(response?.ok) },
-      { label: "detail contains chip_model", check: ({ response }) => (response?.detail ?? "").includes("chip_model") },
-      {
-        label: "detail contains cores and free_heap",
-        check: ({ response }) => {
-          const detail = response?.detail ?? "";
-          return detail.includes("cores") && detail.includes("free_heap");
-        }
-      }
-    ]
-  },
-  {
-    id: "c6",
-    label: "C6 Firmware + UART",
-    summary: "Send an echo payload to C6 through S3 and validate processed_by metadata.",
-    command: "c6_ping",
-    timeoutMs: 2500,
-    parameters: [
-      { name: "payload", label: "Payload", value: "hello-c6" },
-      { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
-    ],
-    criteria: [
-      { label: "Final response ok is true", check: ({ response }) => Boolean(response?.ok) },
-      { label: "detail contains processed_by=c6-zigbee", check: ({ response }) => (response?.detail ?? "").includes("processed_by=c6-zigbee") },
-      { label: "c6 rx_ok event is received", check: ({ events }) => hasEvent(events, "c6", "rx_ok") }
-    ]
-  },
-  {
-    id: "ethernet",
-    label: "Ethernet DM9051",
-    summary: "Start Ethernet, wait for link up, DHCP got_ip, then link down.",
-    command: "eth_start",
-    timeoutMs: 3000,
-    followUpCommand: "eth_stop",
-    parameters: [],
-    phases: [
-      { waitFor: "link_up", hint: "Plug the Ethernet cable into the PCB", timeoutMs: 60000 },
-      { waitFor: "got_ip", hint: "Cable detected. Waiting for DHCP IP...", timeoutMs: 30000 },
-      { waitFor: "link_down", hint: "IP received. Unplug the Ethernet cable now", timeoutMs: 60000 }
-    ],
-    criteria: [
-      { label: "eth_start response ok true", check: ({ response }) => Boolean(response?.ok) },
-      { label: "ethernet link_up event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_up") },
-      { label: "ethernet got_ip event is received", check: ({ events }) => hasEvent(events, "ethernet", "got_ip") },
-      { label: "ethernet link_down event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_down") }
-    ]
-  },
-  {
-    id: "wifi",
-    label: "WiFi STA",
-    summary: "Connect WiFi using the operator SSID/password and wait for the got_ip event.",
-    command: "wifi_connect",
-    timeoutMs: 3000,
-    followUpCommand: "wifi_stop",
-    parameters: [
-      { name: "ssid", label: "SSID", value: "FactoryAP" },
-      { name: "password", label: "Password", value: "", type: "password" }
-    ],
-    phases: [
-      {
-        waitFor: "got_ip",
-        hint: "Connecting to WiFi, waiting for IP...",
-        timeoutMs: 60000,
-        // A disconnect means this attempt is over; the grace window covers a firmware retry.
-        failOn: ["disconnected"],
-        failGraceMs: 5000,
-        describeFailure: (event) => `WiFi could not connect: ${explainWifiDisconnect(event.detail)}`
-      }
-    ],
-    criteria: [
-      { label: "wifi_connect response ok true", check: ({ response }) => Boolean(response?.ok) },
-      { label: "wifi got_ip event is received", check: ({ events }) => hasEvent(events, "wifi", "got_ip") }
-    ]
-  },
-  {
-    id: "rs485",
-    label: "RS485 Connector",
-    summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",
-    command: "rs485_exchange",
-    timeoutMs: 2500,
-    requiresJig: true,
-    dependsOn: ["jig"],
-    parameters: [
-      { name: "payload", label: "TX payload", value: "EOL_RS485_PING" },
-      { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
-    ],
-    criteria: [
-      { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
-      { label: "rs485 rx event is received", check: ({ events }) => hasEvent(events, "rs485", "rx") },
-      {
-        label: "detail contains tx and rx",
-        check: ({ response }) => {
-          const detail = response?.detail ?? "";
-          return detail.includes("tx=") && detail.includes("rx=");
-        }
-      }
-    ]
-  }
-];
+export const jigTest = {
+  id: "jig",
+  label: "RS485 Jig Check",
+  summary: "Check that the USB-RS485 jig adapter on this station is connected before testing.",
+  hostCheck: "jig",
+  requiresJig: true,
+  parameters: [],
+  criteria: [
+    { label: "Jig serial port is open", check: ({ response }) => Boolean(response?.ok) }
+  ]
+};
 
-export function getTestById(id) {
-  return TESTS.find((test) => test.id === id);
+export const pingTest = {
+  id: "ping",
+  label: "S3 Firmware Alive",
+  summary: "Check S3 firmware, serial RX/TX, and command parser.",
+  command: "ping",
+  timeoutMs: 3000,
+  retries: 2,
+  gate: true,
+  parameters: [],
+  criteria: [
+    { label: "A response message is received", check: ({ response }) => Boolean(response) },
+    { label: "id and cmd match the request", check: ({ response }) => response?.cmd === "ping" },
+    { label: "ok is true", check: ({ response }) => Boolean(response?.ok) }
+  ]
+};
+
+export const infoTest = {
+  id: "info",
+  label: "S3 Runtime Info",
+  summary: "Read chip_model, core count, and free_heap for initial identification.",
+  command: "info",
+  timeoutMs: 3000,
+  parameters: [],
+  criteria: [
+    { label: "Response ok is true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "detail contains chip_model", check: ({ response }) => (response?.detail ?? "").includes("chip_model") },
+    {
+      label: "detail contains cores and free_heap",
+      check: ({ response }) => {
+        const detail = response?.detail ?? "";
+        return detail.includes("cores") && detail.includes("free_heap");
+      }
+    }
+  ]
+};
+
+export const c6Test = {
+  id: "c6",
+  label: "C6 Firmware + UART",
+  summary: "Send an echo payload to C6 through S3 and validate processed_by metadata.",
+  command: "c6_ping",
+  timeoutMs: 2500,
+  parameters: [
+    { name: "payload", label: "Payload", value: "hello-c6" },
+    { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
+  ],
+  criteria: [
+    { label: "Final response ok is true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "detail contains processed_by=c6-zigbee", check: ({ response }) => (response?.detail ?? "").includes("processed_by=c6-zigbee") },
+    { label: "c6 rx_ok event is received", check: ({ events }) => hasEvent(events, "c6", "rx_ok") }
+  ]
+};
+
+export const ethernetTest = {
+  id: "ethernet",
+  label: "Ethernet DM9051",
+  summary: "Start Ethernet, wait for link up, DHCP got_ip, then link down.",
+  command: "eth_start",
+  timeoutMs: 3000,
+  followUpCommand: "eth_stop",
+  parameters: [],
+  phases: [
+    { waitFor: "link_up", hint: "Plug the Ethernet cable into the PCB", timeoutMs: 60000 },
+    { waitFor: "got_ip", hint: "Cable detected. Waiting for DHCP IP...", timeoutMs: 30000 },
+    { waitFor: "link_down", hint: "IP received. Unplug the Ethernet cable now", timeoutMs: 60000 }
+  ],
+  criteria: [
+    { label: "eth_start response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "ethernet link_up event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_up") },
+    { label: "ethernet got_ip event is received", check: ({ events }) => hasEvent(events, "ethernet", "got_ip") },
+    { label: "ethernet link_down event is received", check: ({ events }) => hasEvent(events, "ethernet", "link_down") }
+  ]
+};
+
+export const wifiTest = {
+  id: "wifi",
+  label: "WiFi STA",
+  summary: "Connect WiFi using the operator SSID/password and wait for the got_ip event.",
+  command: "wifi_connect",
+  timeoutMs: 3000,
+  followUpCommand: "wifi_stop",
+  parameters: [
+    { name: "ssid", label: "SSID", value: "FactoryAP" },
+    { name: "password", label: "Password", value: "", type: "password" }
+  ],
+  phases: [
+    {
+      waitFor: "got_ip",
+      hint: "Connecting to WiFi, waiting for IP...",
+      timeoutMs: 60000,
+      // A disconnect means this attempt is over; the grace window covers a firmware retry.
+      failOn: ["disconnected"],
+      failGraceMs: 5000,
+      describeFailure: (event) => `WiFi could not connect: ${explainWifiDisconnect(event.detail)}`
+    }
+  ],
+  criteria: [
+    { label: "wifi_connect response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "wifi got_ip event is received", check: ({ events }) => hasEvent(events, "wifi", "got_ip") }
+  ]
+};
+
+export const rs485Test = {
+  id: "rs485",
+  label: "RS485 Connector",
+  summary: "Send a raw payload to RS485 and wait for one reply line from the jig.",
+  command: "rs485_exchange",
+  timeoutMs: 2500,
+  requiresJig: true,
+  dependsOn: ["jig"],
+  parameters: [
+    { name: "payload", label: "TX payload", value: "EOL_RS485_PING" },
+    { name: "timeout_ms", label: "Firmware timeout ms", value: "1000", type: "number" }
+  ],
+  criteria: [
+    { label: "Response ok true", check: ({ response }) => Boolean(response?.ok) },
+    { label: "rs485 rx event is received", check: ({ events }) => hasEvent(events, "rs485", "rx") },
+    {
+      label: "detail contains tx and rx",
+      check: ({ response }) => {
+        const detail = response?.detail ?? "";
+        return detail.includes("tx=") && detail.includes("rx=");
+      }
+    }
+  ]
+};
+
+/**
+ * The ordered test list for one product.
+ *
+ * Boards differ in what is physically present, not in how a test behaves, so the
+ * definitions above are shared and each product picks from them. The climate board
+ * wires UART2 to the GSM modem instead of RS485, so it has neither the jig check nor
+ * the RS485 connector test.
+ *
+ * @param {{boardId: string, rs485?: boolean}} options
+ */
+export function createTests({ boardId, rs485 = false }) {
+  const tests = [];
+  if (rs485) tests.push(jigTest);
+  tests.push(pingTest, createInfoTest(boardId), c6Test, ethernetTest, wifiTest);
+  if (rs485) tests.push(rs485Test);
+  return tests;
+}
+
+/**
+ * Adds a board-identity criterion to the info test.
+ *
+ * Flashing the wrong product's firmware is the failure this guards against, and no UI
+ * can catch it -- only the board can say what it is. Firmware that does not report
+ * `board=` yet still passes, so this is safe to ship before the firmware side exists;
+ * once it does, a mismatch fails here instead of surfacing as puzzling failures
+ * further down the run.
+ */
+export function createInfoTest(boardId) {
+  return {
+    ...infoTest,
+    criteria: [
+      ...infoTest.criteria,
+      {
+        label: `board is ${boardId}, when the firmware reports one`,
+        check: ({ response }) => {
+          const reported = /board=([\w.-]+)/.exec(response?.detail ?? "")?.[1];
+          return !reported || reported === boardId;
+        }
+      }
+    ]
+  };
 }
 
 export function evaluateCriteria(test, context) {

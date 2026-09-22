@@ -12,7 +12,13 @@
       <div class="row mb-4">
         <div class="col-12 text-center mb-3">
           <h1 class="fw-bold">Ferbos EOL PCB Tester</h1>
-          <p class="text-muted">Production pipeline for ESP32-S3 and ESP32-C6 testing and firmware provisioning.</p>
+          <div class="product-bar">
+            <span class="product-chip">Board</span>
+            <strong id="productLabel">Gateway</strong>
+            <select id="productSelect" class="form-select form-select-sm product-select" aria-label="Board under test"></select>
+          </div>
+          <p id="productSummary" class="text-muted mb-0"></p>
+          <p id="productWarning" class="product-warning d-none"></p>
         </div>
       </div>
 
