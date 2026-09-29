@@ -28,6 +28,28 @@ http://localhost:8080/ferbos-pcb-testing/
 Use Chrome or Edge on desktop because the Web Serial API requires
 `navigator.serial` support and the page must be opened from `localhost` or HTTPS.
 
+## Tests
+
+```bash
+npm install   # once, for jsdom
+npm test
+```
+
+Node's built-in runner, no framework. Six files under `tests/`:
+
+| file | covers |
+| --- | --- |
+| `firmware.test.mjs` | every flash profile writes otadata, files exist and are real ESP images, production version is pinned, images that must differ do |
+| `products.test.mjs` | `?product=` resolution, per-board test lists, the board-identity criterion, pass criteria |
+| `runner.test.mjs` | the sequence runner against a scripted fake firmware |
+| `serial.test.mjs` | reset signalling, boot handshake, password masking, panic detection |
+| `render.test.mjs` | the gateway page |
+| `render-climate.test.mjs` | the climate page |
+
+The two renderer files are separate on purpose: `render.js` imports the product
+registry by a plain specifier, so whichever product resolves first is cached for the
+whole process, and `node --test` gives each file its own.
+
 ## Boards
 
 One deployment serves every board. The station picks its product from the URL:
