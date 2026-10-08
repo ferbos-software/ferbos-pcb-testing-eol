@@ -28,6 +28,23 @@ http://localhost:8080/ferbos-pcb-testing/
 Use Chrome or Edge on desktop because the Web Serial API requires
 `navigator.serial` support and the page must be opened from `localhost` or HTTPS.
 
+## Deployment
+
+Production runs in Docker and is served at the site root (`/`, not
+`/ferbos-pcb-testing/`) behind an HTTPS reverse proxy with basic auth:
+
+```bash
+docker compose up -d --build   # after every git pull
+```
+
+`docker-compose.yml` publishes the container on the server's Tailscale address
+only, so it is reachable solely through the proxy.
+
+Third-party libraries (esptool-js, Bootstrap) are vendored under `vendor/` rather
+than loaded from unpkg/jsDelivr, because those CDNs are unreliable or blocked for
+the stations in China. To upgrade one, download the new file into `vendor/` and
+update the reference in `index.html` or `js/flasher.js`.
+
 ## Tests
 
 ```bash

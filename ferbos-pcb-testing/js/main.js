@@ -850,8 +850,8 @@ function completeFlashUi(target, manualResetNeeded, appDescriptor) {
     kind: "ok",
     title: "Flash Success",
     message: built
-      ? `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash: ${built}`
-      : `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} berhasil diflash.`
+      ? `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} flashed successfully: ${built}`
+      : `${FLASH_PROFILE_LABELS[profile]} ${target.toUpperCase()} flashed successfully.`
   });
   if (built) {
     // Printed so it can be compared against the boot banner: if they disagree, a stale

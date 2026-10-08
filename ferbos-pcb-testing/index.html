@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ferbos PCB EOL Tester</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="vendor/bootstrap-5.3.3.min.css" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
@@ -29,7 +29,7 @@
             <div class="card-body text-center">
               <div class="badge bg-primary mb-2 fs-6">Step 1</div>
               <h4 class="card-title fw-bold">Flash Testing Bin</h4>
-              <p class="text-muted small">Upload firmware khusus testing (PCB EOL Tester) ke board.</p>
+              <p class="text-muted small">Upload the testing firmware (PCB EOL Tester) to the board.</p>
               <div class="d-grid gap-2 mt-4">
                 <button id="flashTesterS3Button" class="btn btn-outline-primary" type="button">Flash ESP32-S3 (Tester)</button>
                 <button id="flashTesterC6Button" class="btn btn-outline-primary" type="button">Flash ESP32-C6 (Tester)</button>
@@ -44,7 +44,7 @@
             <div class="card-body text-center">
               <div class="badge bg-primary mb-2 fs-6">Step 2</div>
               <h4 class="card-title fw-bold">Start Testing</h4>
-              <p class="text-muted small">Isi data sekali, lalu urutan test berjalan otomatis. Ikuti instruksi di panel Operator.</p>
+              <p class="text-muted small">Fill in the details once, then the test sequence runs automatically. Follow the instructions in the Operator panel.</p>
               <form id="sequenceForm" class="sequence-form text-start mt-3" autocomplete="off"></form>
               <ol id="portGuide" class="port-guide text-start"></ol>
               <button id="forgetPortsButton" class="btn btn-link btn-sm port-guide-reset" type="button">Forget saved ports</button>
@@ -63,7 +63,7 @@
             <div class="card-body text-center">
               <div class="badge bg-success mb-2 fs-6">Step 3</div>
               <h4 class="card-title fw-bold">Flash Production Bin</h4>
-              <p class="text-muted small">Setelah lolos test, upload firmware production untuk siap jual.</p>
+              <p class="text-muted small">After the board passes, upload the production firmware to make it ready for sale.</p>
               <div class="d-grid gap-2 mt-4">
                 <button id="flashProductionS3Button" class="btn btn-outline-success" type="button">Flash ESP32-S3 (Prod)</button>
                 <button id="flashProductionC6Button" class="btn btn-outline-success" type="button">Flash ESP32-C6 (Prod)</button>
@@ -234,7 +234,7 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="vendor/bootstrap-5.3.3.bundle.min.js"></script>
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>

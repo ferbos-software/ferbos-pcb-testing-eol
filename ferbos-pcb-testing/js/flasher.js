@@ -1,4 +1,4 @@
-import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.6.1/bundle.js";
+import { ESPLoader, Transport } from "../vendor/esptool-js-0.6.1.bundle.js";
 import { ACTIVE_PRODUCT } from "./core/productRegistry.js";
 
 export class ManualBootRequiredError extends Error {
@@ -24,11 +24,11 @@ function writeLog(onLog, data, trailingNewline = false) {
 function assertExpectedChip(target, chipName) {
   const expectedChip = EXPECTED_CHIP_NAMES[target];
   if (!expectedChip) {
-    throw new Error(`Target firmware tidak dikenal: ${target}`);
+    throw new Error(`Unknown firmware target: ${target}`);
   }
 
   if (!chipName || !chipName.toUpperCase().includes(expectedChip)) {
-    throw new Error(`Chip terdeteksi ${chipName || "unknown"}, tetapi target flash adalah ${expectedChip}`);
+    throw new Error(`Detected chip ${chipName || "unknown"}, but the flash target is ${expectedChip}`);
   }
 }
 
@@ -82,7 +82,7 @@ async function loadFirmwareFiles(profile, target) {
   const firmwareProfile = getFirmwareProfile(profile);
   const targetConfig = firmwareProfile?.targets[target];
   if (!targetConfig) {
-    throw new Error(`Firmware ${ACTIVE_PRODUCT.id}/${profile}/${target} belum tersedia`);
+    throw new Error(`Firmware ${ACTIVE_PRODUCT.id}/${profile}/${target} is not available yet`);
   }
 
   return Promise.all(
@@ -157,7 +157,7 @@ export async function readDeviceMac(port, onLog) {
       try {
         await transport.disconnect();
       } catch (disconnectError) {
-        console.warn("Gagal disconnect transport setelah baca MAC:", disconnectError);
+        console.warn("Failed to disconnect transport after reading MAC:", disconnectError);
       }
     }
   }
@@ -206,7 +206,7 @@ export async function flashFirmware(port, target, onProgress, onLog, options = {
       }
     };
 
-    // 4. Inisiasi loader dan sambungkan
+    // 4. Initialise the loader and connect
     const loader = new ESPLoader(flashOptions);
     const resetMode = options.resetMode ?? "default_reset";
     const chipName = await loader.main(resetMode);
@@ -238,9 +238,9 @@ export async function flashFirmware(port, target, onProgress, onLog, options = {
       }
     });
 
-    writeLog(onLog, "Flashing selesai! Hard resetting...", true);
+    writeLog(onLog, "Flashing complete! Hard resetting...", true);
     
-    // 6. Hard reset chip agar booting ke aplikasi
+    // 6. Hard reset the chip so it boots into the application
     if (options.resetAfter !== false) {
       try {
         await loader.after("hard_reset");
@@ -255,7 +255,7 @@ export async function flashFirmware(port, target, onProgress, onLog, options = {
 
     return { manualResetRequired, chipName, macAddress, appDescriptor };
   } catch (err) {
-    console.error("Error saat flashing:", err);
+    console.error("Error while flashing:", err);
     if (needsManualBoot(err) && options.resetMode !== "no_reset") {
       throw new ManualBootRequiredError(err);
     }
@@ -265,7 +265,7 @@ export async function flashFirmware(port, target, onProgress, onLog, options = {
       try {
         await transport.disconnect();
       } catch (disconnectError) {
-        console.warn("Gagal disconnect transport setelah flashing:", disconnectError);
+        console.warn("Failed to disconnect transport after flashing:", disconnectError);
       }
     }
   }

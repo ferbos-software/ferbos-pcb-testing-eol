@@ -1,0 +1,8 @@
+services:
+  web:
+    build: .
+    image: ferbos-pcb-testing-eol
+    ports:
+      # Tailscale only; the reverse proxy reaches it over the tailnet.
+      - "100.80.160.115:8095:8080"
+    restart: unless-stopped
